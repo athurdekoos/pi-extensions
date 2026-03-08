@@ -1,0 +1,20 @@
+{
+  "name": "pi-gh",
+  "version": "0.1.0",
+  "type": "module",
+  "keywords": ["pi-package"],
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "latest",
+    "@mariozechner/pi-ai": "latest",
+    "@sinclair/typebox": "latest"
+  },
+  "devDependencies": {
+    "vitest": "latest"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}
