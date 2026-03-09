@@ -29,6 +29,7 @@ Read these files before making changes:
 - `tests/pi-gh.test.ts`
 - `tests/helpers.ts`
 - `tests/test-agent-routing.sh`
+- `tests/test-agent-routing2.sh`
 - `tests/run-all.sh`
 
 Preserve documented behavior unless explicitly asked to change it.
@@ -45,6 +46,7 @@ pi-gh/
     pi-gh.test.ts
     helpers.ts
     test-agent-routing.sh
+    test-agent-routing2.sh
     run-all.sh
 ```
 
@@ -86,7 +88,7 @@ Protect:
 
 Two test tiers:
 - **Unit tests** (`tests/pi-gh.test.ts`): Mock `pi.exec`, no live `gh` calls. Run via `npx vitest run`.
-- **Agent-routing e2e** (`tests/test-agent-routing.sh`): External bash harness with a fake `gh` binary. Launches Pi in non-interactive mode with only the pi-gh extension loaded and all built-in tools disabled. Asserts canary markers in agent output and fake-gh invocation logs. Includes a negative test for auth failure. Run via `bash tests/test-agent-routing.sh`.
+- **Agent-routing e2e** (`tests/test-agent-routing.sh`, `tests/test-agent-routing2.sh`): External bash harnesses with fake `gh` binaries. Launch Pi in non-interactive mode with only the pi-gh extension loaded and all built-in tools disabled. Assert canary markers in agent output and fake-gh invocation logs. Include negative tests for auth failure and missing gh. Run individually or via `bash tests/run-all.sh`.
 
 Run all tests:
 ```bash

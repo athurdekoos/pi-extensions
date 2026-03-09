@@ -57,6 +57,11 @@ run_suite "unit tests (vitest)" npx vitest run
 run_suite "agent routing (e2e)" bash tests/test-agent-routing.sh
 
 # ---------------------------------------------------------------------------
+# Suite 3: Agent-routing e2e test (variant 2)
+# ---------------------------------------------------------------------------
+run_suite "agent routing v2 (e2e)" bash tests/test-agent-routing2.sh
+
+# ---------------------------------------------------------------------------
 # Combined summary
 # ---------------------------------------------------------------------------
 echo ""
