@@ -6,8 +6,14 @@
 
 ```bash
 cd pi-subagents
-npm test          # vitest run (all tests)
-npm run test:watch  # vitest in watch mode
+npm test              # fast tests only (excludes LLM)
+npm run test:all      # all tests including real-LLM
+npm run test:llm      # real-LLM tests only
+npm run test:unit     # unit tests only
+npm run test:extension # extension-level tests only
+npm run test:integration # integration tests only
+npm run test:veracity # mock veracity traps only
+npm run test:watch    # vitest in watch mode
 ```
 
 ## Test Layers
@@ -77,6 +83,25 @@ Proves actual tool use vs bluffing through hidden canary/nonce patterns.
 - Without the tool, the answer cannot be correct
 - Derived canary results make accidental pass impossible
 
+### 5. Real-LLM Veracity Tests (`tests/llm/`)
+
+End-to-end tests that run against a live Anthropic model (claude-haiku-4-5).
+
+| File | Protects |
+|---|---|
+| `real-veracity.test.ts` | 2 positive traps: agent calls tool and includes SHA-256-derived canary; agent uses real canary not decoy. 3 negative traps: tool absent yields honest failure; tool error reported honestly; decoy not confirmed as real. |
+
+These tests use:
+- `createAgentSession()` with real auth and model
+- A custom `get_secret_token` tool that returns a cryptographic canary
+- SHA-256 derivation so the token cannot be guessed
+- Fresh random nonces per test run
+- Both event telemetry (`tool_execution_start`) and message-level telemetry (`toolCall` content blocks)
+
+They are excluded from `npm test` (fast path) and run via `npm run test:llm` or `npm run test:all`.
+
+They auto-skip if no API key is available for the configured provider.
+
 ## Test Helpers
 
 | File | Purpose |
@@ -100,7 +125,7 @@ All test-only exports are prefixed with `_` and documented as test-only in the s
 
 ## What Is Not Covered
 
-- **Live LLM calls**: No tests invoke a real model. Veracity is proven structurally.
+- **Live LLM calls beyond veracity**: The LLM tests cover veracity traps only, not full delegate_to_subagent flows with a real model.
 - **Real filesystem I/O by child tools**: Built-in tools (read, bash, etc.) are not exercised.
 - **Concurrent parent sessions**: The recursion guard design supports concurrency, but tests are sequential.
 - **Model override resolution**: The `modelOverride` parameter path is not tested with a real `ModelRegistry`.

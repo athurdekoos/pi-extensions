@@ -16,7 +16,13 @@
     ]
   },
   "scripts": {
-    "test": "vitest run",
+    "test": "vitest run --exclude 'tests/llm/**'",
+    "test:all": "vitest run",
+    "test:llm": "vitest run tests/llm/",
+    "test:unit": "vitest run tests/unit/",
+    "test:extension": "vitest run tests/extension/",
+    "test:integration": "vitest run tests/integration/",
+    "test:veracity": "vitest run tests/veracity/",
     "test:watch": "vitest"
   },
   "devDependencies": {
