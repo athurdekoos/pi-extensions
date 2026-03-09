@@ -1,6 +1,6 @@
 # pi-extensions
 
-A collection of extensions for [`@mariozechner/pi-coding-agent`](https://github.com/nicholasgasior/pi-coding-agent). Each extension is a self-contained package that adds tools, commands, or integrations to Pi.
+A collection of extensions for [`@mariozechner/pi-coding-agent`](https://github.com/badlogic/pi-mono). Each extension is a self-contained package that adds tools, commands, or integrations to Pi.
 
 ## Extensions
 
