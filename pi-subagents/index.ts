@@ -47,10 +47,36 @@ const activeChildSignals = new WeakSet<AbortSignal>();
 let childDepth = 0;
 
 // ---------------------------------------------------------------------------
+// Test-only accessors for internal state.
+// These allow tests to inspect and manipulate the recursion guard without
+// breaking encapsulation in production code paths.
+// ---------------------------------------------------------------------------
+
+/** Read the current child depth (test-only). */
+export function _getChildDepth(): number {
+  return childDepth;
+}
+
+/** Set the child depth (test-only, for setup/teardown). */
+export function _setChildDepth(n: number): void {
+  childDepth = n;
+}
+
+/** Add a signal to the active child set (test-only). */
+export function _addChildSignal(signal: AbortSignal): void {
+  activeChildSignals.add(signal);
+}
+
+/** Remove a signal from the active child set (test-only). */
+export function _removeChildSignal(signal: AbortSignal): void {
+  activeChildSignals.delete(signal);
+}
+
+// ---------------------------------------------------------------------------
 // Parameter schema
 // ---------------------------------------------------------------------------
 
-const DelegateParamsSchema = Type.Object({
+export const DelegateParamsSchema = Type.Object({
   task: Type.String({
     description: "Exact task description for the child subagent.",
   }),
@@ -89,14 +115,14 @@ const DelegateParamsSchema = Type.Object({
   ),
 });
 
-type DelegateParams = Static<typeof DelegateParamsSchema>;
+export type DelegateParams = Static<typeof DelegateParamsSchema>;
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Helpers (exported for testing)
 // ---------------------------------------------------------------------------
 
 /** Build the child system prompt with explicit behavioral constraints. */
-function buildChildSystemPrompt(params: DelegateParams): string {
+export function buildChildSystemPrompt(params: DelegateParams): string {
   const outputInstruction =
     params.outputStyle === "patch_plan"
       ? "Return your result as a concise patch plan listing files and changes."
@@ -136,7 +162,7 @@ function buildChildSystemPrompt(params: DelegateParams): string {
  * session are returned. The delegate_to_subagent tool is always excluded
  * regardless of the allowlist (defense-in-depth).
  */
-function resolveAllowedCustomTools(
+export function resolveAllowedCustomTools(
   parentTools: Array<{ name: string; description: string; parameters: unknown }>,
   parentExtensionTools: ToolDefinition[],
   allowedNames: string[]
