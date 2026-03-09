@@ -1,6 +1,6 @@
 # pi-subagents Test Suite
 
-4-layer test suite for the `pi-subagents` extension.
+5-layer test suite for the `pi-subagents` extension.
 
 ## Running
 
@@ -83,7 +83,58 @@ Proves actual tool use vs bluffing through hidden canary/nonce patterns.
 - Without the tool, the answer cannot be correct
 - Derived canary results make accidental pass impossible
 
-### 5. Real-LLM Veracity Tests (`tests/llm/`)
+### 5. Parallel Subagent Tests
+
+Tests for concurrent and sequential multi-child execution, isolation, and honest concurrency classification.
+
+#### Integration (`tests/integration/parallel-subagents.test.ts`)
+
+| Scenario | Tests | What It Protects |
+|---|---|---|
+| Sequential success | 5 | All 3 tasks produce correct derived canaries; results are isolated; sessions disposed; childDepth restored; no delegate_to_subagent in child tools |
+| Concurrency classification | 6 | Concurrent calls all succeed (depth guard is post-yield); overlapping timing classified as `proven_parallel`; sequential classified as `serial_observed`; isolation under concurrency; timing asymmetry handled correctly; classification stable across 5 repeated runs |
+
+#### Veracity traps (`tests/veracity/parallel-subagents-traps.test.ts`)
+
+| Scenario | Tests | What It Protects |
+|---|---|---|
+| Partial failure (A/B/C succeed, D fails) | 4 | D fails honestly; D's canary not fabricated; D's failure does not corrupt A/B/C; all sessions disposed even on failure |
+| Derived canary traps | 4 | Each result contains unique derived canary (not raw nonce); decoys in context rejected; fresh nonces across repeated runs produce unique results; error results contain actual error not fabricated success |
+
+#### How concurrency is classified
+
+The `classifyConcurrency()` function in `tests/helpers/parallel-harness.ts` examines execution timing records:
+
+- **proven_parallel**: at least two successful executions have overlapping time windows (one starts before another ends). This is observed evidence, not code intent.
+- **serial_observed**: all successful executions are strictly non-overlapping (each starts after the previous ended).
+- **inconclusive**: fewer than 2 successful executions; cannot determine overlap.
+
+The tests assert specific classifications based on execution mode:
+- `Promise.all` with delays: `proven_parallel` (overlapping observed)
+- Sequential `await`: `serial_observed` (no overlap possible)
+
+A false claim of `proven_parallel` when execution is serial is a test failure. The stability test runs the concurrent scenario 5 times to detect flaky scheduling.
+
+#### How the negative trap proves honest failure
+
+In Scenario 3, child D's mock session throws a controlled error. The test asserts:
+1. D's canary (the derived value it would have returned on success) is absent from the result
+2. D's raw nonce is absent from the result
+3. The actual error message appears in the result
+4. No success-like structure (e.g., "Subagent Result", mode header) appears
+5. A/B/C results remain correct and isolated from D's failure
+
+#### How veracity checks prove actual tool use
+
+Each test generates a fresh nonce and derives a canary via a non-trivial transformation (reverse+suffix, lowercase+suffix, or numeric extraction). The mock child session returns the derived canary. The test verifies:
+1. **Telemetry**: `createAgentSession` was called the expected number of times
+2. **Semantic dependence**: the tool result contains the exact derived canary
+3. **Anti-echo**: the raw nonce does NOT appear in the result (child returned derived form)
+4. **Anti-decoy**: when decoy values are in the task text, only the real canary from the tool appears in results
+
+Without actual tool invocation, the derived canary cannot appear in the output.
+
+### 6. Real-LLM Veracity Tests (`tests/llm/`)
 
 End-to-end tests that run against a live Anthropic model (claude-haiku-4-5).
 
@@ -109,6 +160,7 @@ They auto-skip if no API key is available for the configured provider.
 | `helpers/mock-extension-api.ts` | Fake `ExtensionAPI` that captures registrations; mock `ExtensionContext` |
 | `helpers/fake-tool.ts` | Factory for `ToolDefinition` objects used in allowlist tests |
 | `helpers/nonce.ts` | Deterministic canary generator with derive and decoy functions |
+| `helpers/parallel-harness.ts` | Timing recorder, concurrency classifier, isolation assertions, task-specific canary derivations |
 
 ## Minimal Refactors Made
 
@@ -127,6 +179,6 @@ All test-only exports are prefixed with `_` and documented as test-only in the s
 
 - **Live LLM calls beyond veracity**: The LLM tests cover veracity traps only, not full delegate_to_subagent flows with a real model.
 - **Real filesystem I/O by child tools**: Built-in tools (read, bash, etc.) are not exercised.
-- **Concurrent parent sessions**: The recursion guard design supports concurrency, but tests are sequential.
+- **Concurrent parent sessions**: Parallel subagent tests cover concurrent tool-level execution within a single parent; separate parent sessions are not tested.
 - **Model override resolution**: The `modelOverride` parameter path is not tested with a real `ModelRegistry`.
 - **globalThis safe tool registration**: The `__piSubagents_registerSafeTool` global is tested indirectly through `resolveAllowedCustomTools`.

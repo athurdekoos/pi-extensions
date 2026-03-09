@@ -45,6 +45,7 @@ pi-subagents/
       mock-extension-api.ts
       fake-tool.ts
       nonce.ts
+      parallel-harness.ts
     unit/
       child-prompt.test.ts
       tool-resolution.test.ts
@@ -55,9 +56,11 @@ pi-subagents/
       tool-behavior.test.ts
     integration/
       session-wiring.test.ts
+      parallel-subagents.test.ts
     veracity/
       trap-positive.test.ts
       trap-negative.test.ts
+      parallel-subagents-traps.test.ts
     llm/
       real-veracity.test.ts
 ```
@@ -119,12 +122,12 @@ Document registered tools, commands, hooks, and widgets in `README.md`.
 
 ## Testing Rules
 
-The test suite has 5 layers (84 tests). See `tests/TESTING.md` for full documentation.
+The test suite has 6 layers (103 tests). See `tests/TESTING.md` for full documentation.
 
 ### Running
 
 ```bash
-npm test              # fast tests only (excludes LLM, ~3s)
+npm test              # fast tests only (excludes LLM, ~4s)
 npm run test:all      # all tests including real-LLM (~17s)
 npm run test:llm      # real-LLM veracity tests only (~15s)
 ```
@@ -135,8 +138,8 @@ npm run test:llm      # real-LLM veracity tests only (~15s)
 |---|---|---|---|
 | Unit | `tests/unit/` | 36 | fast |
 | Extension | `tests/extension/` | 18 | fast |
-| Integration | `tests/integration/` | 10 | fast |
-| Veracity (mock) | `tests/veracity/` | 15 | fast |
+| Integration | `tests/integration/` | 21 | fast |
+| Veracity (mock) | `tests/veracity/` | 23 | fast |
 | Veracity (LLM) | `tests/llm/` | 5 | slow (~15s, requires API key) |
 
 ### When to add tests
@@ -183,7 +186,7 @@ pi -e ./index.ts
 ## Definition of Done
 A change in this extension is done when:
 - behavior matches the request
-- `npm run test:all` passes (84 tests)
+- `npm run test:all` passes (103 tests)
 - new tests protect intended behavior
 - documentation is updated if needed
 - no obvious dead code or placeholder comments remain
