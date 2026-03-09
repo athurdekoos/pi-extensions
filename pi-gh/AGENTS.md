@@ -28,6 +28,8 @@ Read these files before making changes:
 - `index.ts`
 - `tests/pi-gh.test.ts`
 - `tests/helpers.ts`
+- `tests/test-agent-routing.sh`
+- `tests/run-all.sh`
 
 Preserve documented behavior unless explicitly asked to change it.
 
@@ -42,6 +44,8 @@ pi-gh/
   tests/
     pi-gh.test.ts
     helpers.ts
+    test-agent-routing.sh
+    run-all.sh
 ```
 
 ## Local Coding Rules
@@ -78,8 +82,16 @@ Protect:
 1. Preflight detection (gh missing, auth missing, repo missing).
 2. Confirmation gating for destructive operations.
 3. Normalized output contract.
+4. Agent tool routing (extension tools invoked, not bypassed).
 
-Tests mock `pi.exec` and do not call the real `gh` binary.
+Two test tiers:
+- **Unit tests** (`tests/pi-gh.test.ts`): Mock `pi.exec`, no live `gh` calls. Run via `npx vitest run`.
+- **Agent-routing e2e** (`tests/test-agent-routing.sh`): External bash harness with a fake `gh` binary. Launches Pi in non-interactive mode with only the pi-gh extension loaded and all built-in tools disabled. Asserts canary markers in agent output and fake-gh invocation logs. Includes a negative test for auth failure. Run via `bash tests/test-agent-routing.sh`.
+
+Run all tests:
+```bash
+bash tests/run-all.sh
+```
 
 ## Validation Checklist
 Before finishing work:
@@ -87,8 +99,9 @@ Before finishing work:
 2. Verify Pi entrypoint is correct (`pi.extensions: ["./index.ts"]`).
 3. Verify tools, schemas, and operations are wired correctly.
 4. Verify no unsafe shell interpolation.
-5. Update `README.md` if behavior or setup changed.
-6. Manual test: `pi -e ./index.ts` from a GitHub repo directory.
+5. Run all tests: `bash tests/run-all.sh`.
+6. Update `README.md` if behavior or setup changed.
+7. Manual test: `pi -e ./index.ts` from a GitHub repo directory.
 
 ## Change Policy
 - Prefer the smallest change that solves the request.

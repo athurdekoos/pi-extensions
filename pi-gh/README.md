@@ -150,8 +150,32 @@ Dispatch workflow ci.yml on main.
 
 ## Running Tests
 
+### All tests
+
 ```bash
 cd pi-gh
 npm install
+bash tests/run-all.sh
+```
+
+Or via npm:
+
+```bash
+npm run test:all
+```
+
+### Unit tests only
+
+Mocked `pi.exec`, no live `gh` calls. Covers preflight detection, confirmation gating, and normalized output contract.
+
+```bash
 npm test
+```
+
+### Agent-routing e2e only
+
+External bash harness that launches Pi with a fake `gh` binary. Proves the agent invokes pi-gh extension tools rather than answering from general knowledge or using built-in tools. Includes a negative test for auth failure. Requires `pi` on PATH.
+
+```bash
+npm run test:e2e
 ```

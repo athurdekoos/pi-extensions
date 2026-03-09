@@ -12,7 +12,9 @@
     "vitest": "latest"
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:all": "bash tests/run-all.sh",
+    "test:e2e": "bash tests/test-agent-routing.sh"
   },
   "pi": {
     "extensions": ["./index.ts"]
