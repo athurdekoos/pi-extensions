@@ -1,7 +1,7 @@
-# <extension-name>
+# pi-subagents
 
 ## Purpose
-This directory contains the `<extension-name>` Pi extension.
+This directory contains the `pi-subagents` Pi extension.
 
 This extension must remain compatible with **`@mariozechner/pi-coding-agent`** and should follow the repository-wide rules defined in the parent `AGENTS.md`.
 
@@ -13,49 +13,54 @@ This file defines **local rules for this extension only**. If there is a conflic
 - Do not introduce shared code or shared packages unless explicitly asked.
 
 ## Extension Goal
-Document the extension's intended behavior here in 2–6 bullets. Replace the placeholders below.
 
-- Primary use case:
-- Main user workflow:
-- Key Pi integration points:
-- Required external tools or services:
-- Main safety considerations:
+- Primary use case: delegate bounded subtasks to an in-process child agent session with scoped tools.
+- Main user workflow: the parent LLM calls `delegate_to_subagent` with a task, mode, and optional tool allowlist; the child runs and returns a result.
+- Key Pi integration points: `registerTool`, `createAgentSession`, `DefaultResourceLoader`, `SessionManager`, `readOnlyTools`/`codingTools`.
+- Required external tools or services: none beyond the Pi SDK and a configured LLM provider.
+- Main safety considerations: recursive delegation prevention (two-layer guard), explicit tool allowlisting, child cannot inherit parent extensions.
 
 ## Source of Truth
 Read these files before making changes:
 - `README.md`
 - `package.json`
-- `index.ts` or `src/index.ts`
-- any local docs in `docs/`
+- `index.ts`
+- `tests/TESTING.md`
 - any tests in `tests/`
 
 Preserve documented behavior unless explicitly asked to change it.
 
-## Local Structure Expectations
-Prefer one of these layouts:
+## Local Structure
 
 ```text
-<extension-name>/
+pi-subagents/
   AGENTS.md
-  package.json
   README.md
+  package.json
   index.ts
+  vitest.config.ts
   tests/
+    TESTING.md
+    helpers/
+      mock-extension-api.ts
+      fake-tool.ts
+      nonce.ts
+    unit/
+      child-prompt.test.ts
+      tool-resolution.test.ts
+      recursion-guard.test.ts
+      schema-validation.test.ts
+    extension/
+      registration.test.ts
+      tool-behavior.test.ts
+    integration/
+      session-wiring.test.ts
+    veracity/
+      trap-positive.test.ts
+      trap-negative.test.ts
+    llm/
+      real-veracity.test.ts
 ```
-
-or
-
-```text
-<extension-name>/
-  AGENTS.md
-  package.json
-  README.md
-  src/
-    index.ts
-  tests/
-```
-
-If using `src/index.ts`, ensure the `pi` manifest points to it explicitly.
 
 ## Local Coding Rules
 - Keep the extension focused on a single clear responsibility.
@@ -66,6 +71,34 @@ If using `src/index.ts`, ensure the `pi` manifest points to it explicitly.
 - Validate tool inputs with schemas.
 - Avoid unnecessary dependencies.
 - Prefer small helper modules over large abstractions.
+
+## Exported Internals
+
+The following are exported from `index.ts` for testability and potential reuse:
+
+- `buildChildSystemPrompt(params)` -- constructs the child system prompt.
+- `resolveAllowedCustomTools(parentTools, registry, allowedNames)` -- filters the safe tool registry by allowlist, always excludes `delegate_to_subagent`.
+- `DelegateParamsSchema` -- TypeBox parameter schema.
+- `DelegateParams` -- TypeScript type for the parameters.
+- `_getChildDepth()`, `_setChildDepth(n)` -- test-only accessors for the recursion depth counter.
+- `_addChildSignal(signal)`, `_removeChildSignal(signal)` -- test-only accessors for the active child signal set.
+
+Test-only exports are prefixed with `_`. Do not use them in production code paths.
+
+## Key Invariants
+
+These properties must hold at all times. Tests enforce them.
+
+1. The child session never has `delegate_to_subagent` in its tool set.
+2. The child session is created with `noExtensions: true` -- no extensions load into the child.
+3. `delegate_to_subagent` is always excluded from `resolveAllowedCustomTools`, even if explicitly listed.
+4. An empty `safeCustomTools` array (or omitted) means the child gets zero custom tools.
+5. Unknown tool names in the allowlist are silently ignored.
+6. The child system prompt always forbids delegation and instructs the child to report when a tool is unavailable.
+7. `childDepth` is incremented before child execution and decremented in the `finally` block.
+8. The child session is always disposed in the `finally` block (success, error, or cancellation).
+9. Errors from the child are surfaced honestly in the tool result, not hidden.
+10. Cancellation (aborted signal) is reported as cancellation, not as an error or success.
 
 ## Tool and Command Rules
 For any tool or command added here:
@@ -85,23 +118,43 @@ Document registered tools, commands, hooks, and widgets in `README.md`.
 - Call out security implications in the README when relevant.
 
 ## Testing Rules
-Protect the highest-value behavior with the fewest useful tests.
 
-Default test target:
-1. main success path
-2. one important edge case
-3. one meaningful failure path
+The test suite has 5 layers (84 tests). See `tests/TESTING.md` for full documentation.
 
-Before adding tests:
-- summarize the behavior being protected
-- identify the regression risks
-- propose the minimal test set
-- state assumptions
+### Running
 
-After adding tests:
-- explain what is covered
-- explain what is not covered
-- call out brittleness or tradeoffs
+```bash
+npm test              # fast tests only (excludes LLM, ~3s)
+npm run test:all      # all tests including real-LLM (~17s)
+npm run test:llm      # real-LLM veracity tests only (~15s)
+```
+
+### Layer summary
+
+| Layer | Dir | Tests | Speed |
+|---|---|---|---|
+| Unit | `tests/unit/` | 36 | fast |
+| Extension | `tests/extension/` | 18 | fast |
+| Integration | `tests/integration/` | 10 | fast |
+| Veracity (mock) | `tests/veracity/` | 15 | fast |
+| Veracity (LLM) | `tests/llm/` | 5 | slow (~15s, requires API key) |
+
+### When to add tests
+
+- Any change to `buildChildSystemPrompt` or `resolveAllowedCustomTools`: add or update unit tests.
+- Any change to the `execute` function: add or update extension-level tests.
+- Any change to session construction or tool wiring: add or update integration tests.
+- Any change to error handling or result propagation: verify veracity trap coverage.
+
+### Veracity test design
+
+Veracity tests use hidden canary nonces to prove tool results flow through correctly and are not fabricated.
+
+- **Positive traps**: tool returns a SHA-256-derived canary; test asserts invocation telemetry AND that the final answer contains the exact derived value.
+- **Negative traps**: tool is absent/broken/blocked; test asserts the canary does not appear and failure is reported honestly.
+- **LLM traps**: same pattern but with real model inference (claude-haiku-4-5). Auto-skip when no API key is available.
+
+Do not weaken the veracity tests. If a change breaks them, the change is suspect.
 
 ## Validation Checklist
 Before finishing work in this extension:
@@ -110,7 +163,8 @@ Before finishing work in this extension:
 3. verify tools, commands, and schemas are wired correctly
 4. verify no obvious unsafe shell interpolation or path handling bugs
 5. update `README.md` if behavior or setup changed
-6. provide a concrete manual test path using Pi
+6. run `npm test` (fast) and `npm run test:all` (full) and verify all pass
+7. provide a concrete manual test path using Pi
 
 Preferred manual run path:
 
@@ -118,19 +172,18 @@ Preferred manual run path:
 pi -e ./index.ts
 ```
 
-or the manifest-backed equivalent from this directory.
-
 ## Change Policy
 - Prefer the smallest change that solves the request.
 - Do not rename or move files unless necessary.
 - Do not change public behavior unless explicitly requested.
 - Do not add dependencies unless justified.
 - If a larger refactor would help, propose it separately before doing it.
+- Do not weaken or remove veracity trap tests without explicit justification.
 
 ## Definition of Done
 A change in this extension is done when:
 - behavior matches the request
-- relevant tests pass
+- `npm run test:all` passes (84 tests)
 - new tests protect intended behavior
 - documentation is updated if needed
 - no obvious dead code or placeholder comments remain
@@ -149,11 +202,9 @@ After coding:
 - call out risks or follow-up work
 
 ## Notes Specific to This Extension
-Replace this section with concrete extension-specific rules, for example:
-- supported platforms
-- required CLI tools
-- allowed working directories
-- expected config files
-- output format constraints
-- performance constraints
-- integration boundaries
+
+- Supported platforms: any platform supported by `@mariozechner/pi-coding-agent`.
+- Required CLI tools: none.
+- The `__piSubagents_registerSafeTool` global is the only cross-extension integration point.
+- The child session inherits the parent's API key and model; there is no separate auth for children.
+- The real-LLM tests use `claude-haiku-4-5` via Anthropic OAuth. They auto-skip if no key is available. To change the model, edit `MODEL_ID` in `tests/llm/real-veracity.test.ts`.

@@ -152,6 +152,56 @@ The LLM may call:
 }
 ```
 
+## Testing
+
+The extension has a 5-layer test suite. See [tests/TESTING.md](tests/TESTING.md) for full details.
+
+### Running tests
+
+```bash
+npm test              # fast tests only (79 tests, ~3s)
+npm run test:all      # all tests including real-LLM (84 tests, ~17s)
+npm run test:llm      # real-LLM veracity tests only (5 tests, ~15s)
+npm run test:unit     # unit tests
+npm run test:extension # extension-level tests
+npm run test:integration # integration tests
+npm run test:veracity # mock veracity traps
+```
+
+### Test layers
+
+| Layer | Location | Count | What it protects |
+|---|---|---|---|
+| Unit | `tests/unit/` | 36 | Child prompt construction, tool allowlist resolution, recursion guard logic, parameter schema |
+| Extension | `tests/extension/` | 18 | Tool registration in parent/child mode, execute behavior with mocked sessions, streaming, disposal, error reporting |
+| Integration | `tests/integration/` | 10 | Real SDK wiring: `DefaultResourceLoader`, `SessionManager`, built-in tool sets, child tool surface |
+| Veracity (mock) | `tests/veracity/` | 15 | Canary-based proof that tool results flow through correctly and are not fabricated on failure |
+| Veracity (LLM) | `tests/llm/` | 5 | Real model inference with SHA-256-derived canaries, decoy detection, honest failure reporting |
+
+### Veracity trap tests
+
+The veracity tests use hidden canary nonces to prove the agent truly uses the subagent tool rather than fabricating results.
+
+**Positive traps**: A custom tool returns a SHA-256-derived canary. Tests assert both tool invocation telemetry and that the final answer contains the exact derived value. Includes a decoy variant where a fake token is planted in the prompt.
+
+**Negative traps**: The tool is absent, broken, or blocked. Tests assert the canary does not appear and the agent reports failure honestly.
+
+The real-LLM tests auto-skip when no API key is available.
+
+## Exported test helpers
+
+The following symbols are exported from `index.ts` with a `_` prefix for test use only:
+
+- `_getChildDepth()`, `_setChildDepth()` -- recursion depth accessors
+- `_addChildSignal()`, `_removeChildSignal()` -- signal set accessors
+
+The following are exported for both testing and potential reuse:
+
+- `buildChildSystemPrompt()` -- child system prompt construction
+- `resolveAllowedCustomTools()` -- allowlist resolution
+- `DelegateParamsSchema` -- parameter schema
+- `DelegateParams` -- parameter type
+
 ## Security considerations
 
 - The child has full filesystem access within the built-in tool capabilities of its mode
@@ -165,3 +215,7 @@ The LLM may call:
 - `@mariozechner/pi-coding-agent` (core SDK)
 - `@mariozechner/pi-ai` (StringEnum helper)
 - `@sinclair/typebox` (parameter schemas)
+
+### Dev dependencies
+
+- `vitest` (test runner)
