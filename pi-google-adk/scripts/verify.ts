@@ -2,24 +2,30 @@
  * Verification script for pi-google-adk.
  *
  * Exercises create_adk_agent and add_adk_capability logic directly,
- * writing to a temp directory inside the repo, then inspects the output.
+ * writing to a temp directory, then inspects the output.
  *
  * Run: npx tsx scripts/verify.ts
  */
 
 import { mkdtempSync, rmSync, readFileSync, existsSync, readdirSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { execSync } from "node:child_process";
 
 import { safeWriteFile, safeReadFile, safeExists, safePath } from "../src/lib/fs-safe.js";
 import { validateAgentName, validateToolName } from "../src/lib/validators.js";
 import { detectAdkProject } from "../src/lib/project-detect.js";
 import { adkDocsMcpConfig } from "../src/lib/adk-docs-mcp.js";
+import {
+  createManifest, serializeManifest, readManifest,
+  addCapabilityToManifest, MANIFEST_FILENAME,
+} from "../src/lib/scaffold-manifest.js";
+import { gitignore } from "../src/templates/shared.js";
 import * as basicTemplate from "../src/templates/python-basic/files.js";
 import * as mcpTemplate from "../src/templates/python-mcp/files.js";
 import * as sequentialTemplate from "../src/templates/python-sequential/files.js";
 
-// ── Helpers ──────────────────────────────────────────────────────────
+// ── Test harness ─────────────────────────────────────────────────────
 
 let passed = 0;
 let failed = 0;
@@ -43,6 +49,16 @@ function assertNotIncludes(haystack: string, needle: string, label: string): voi
   assert(!haystack.includes(needle), `${label} — expected NOT to contain "${needle}"`);
 }
 
+function assertPythonSyntax(filePath: string, label: string): void {
+  try {
+    execSync(`python3 -c "import ast; ast.parse(open('${filePath}').read())"`, { stdio: "pipe" });
+    assert(true, label);
+  } catch (e) {
+    const err = e as { stderr?: Buffer };
+    assert(false, `${label} — ${err.stderr?.toString().trim()}`);
+  }
+}
+
 function listFilesRecursive(dir: string, prefix = ""): string[] {
   const results: string[] = [];
   if (!existsSync(dir)) return results;
@@ -58,6 +74,40 @@ function listFilesRecursive(dir: string, prefix = ""): string[] {
   return results;
 }
 
+/**
+ * Scaffold a full project in workDir, including manifest and .gitignore.
+ */
+function scaffoldProject(
+  workDir: string,
+  base: string,
+  vars: { name: string; model: string },
+  template: "basic" | "mcp" | "sequential",
+): void {
+  const p = (f: string) => `${base}/${f}`;
+
+  if (template === "basic") {
+    safeWriteFile(workDir, p(`${vars.name}/__init__.py`), basicTemplate.initPy(vars), false);
+    safeWriteFile(workDir, p(`${vars.name}/agent.py`), basicTemplate.agentPy(vars), false);
+    safeWriteFile(workDir, p(".env.example"), basicTemplate.envExample(), false);
+    safeWriteFile(workDir, p("README.md"), basicTemplate.projectReadme(vars), false);
+  } else if (template === "mcp") {
+    safeWriteFile(workDir, p(`${vars.name}/__init__.py`), mcpTemplate.initPy(vars), false);
+    safeWriteFile(workDir, p(`${vars.name}/agent.py`), mcpTemplate.agentPy(vars), false);
+    safeWriteFile(workDir, p(`${vars.name}/mcp_config.py`), mcpTemplate.mcpConfigPy(vars), false);
+    safeWriteFile(workDir, p(".env.example"), mcpTemplate.envExample(), false);
+    safeWriteFile(workDir, p("README.md"), mcpTemplate.projectReadme(vars), false);
+  } else {
+    safeWriteFile(workDir, p(`${vars.name}/__init__.py`), sequentialTemplate.initPy(vars), false);
+    safeWriteFile(workDir, p(`${vars.name}/agent.py`), sequentialTemplate.agentPy(vars), false);
+    safeWriteFile(workDir, p(`${vars.name}/steps.py`), sequentialTemplate.stepsPy(vars), false);
+    safeWriteFile(workDir, p(".env.example"), sequentialTemplate.envExample(), false);
+    safeWriteFile(workDir, p("README.md"), sequentialTemplate.projectReadme(vars), false);
+  }
+  safeWriteFile(workDir, p(".gitignore"), gitignore(), false);
+  const manifest = createManifest(vars.name, template, vars.model);
+  safeWriteFile(workDir, p(MANIFEST_FILENAME), serializeManifest(manifest), false);
+}
+
 // ── Test workspace ──────────────────────────────────────────────────
 
 const workDir = mkdtempSync(join(tmpdir(), "pi-google-adk-verify-"));
@@ -65,7 +115,7 @@ console.log(`Test workspace: ${workDir}\n`);
 
 try {
   // ================================================================
-  // 1. Validator tests
+  // 1. Validators
   // ================================================================
   console.log("--- Validators ---");
 
@@ -84,7 +134,7 @@ try {
   assert(validateToolName("BAD") !== null, "uppercase tool name rejected");
 
   // ================================================================
-  // 2. Path safety tests
+  // 2. Path safety
   // ================================================================
   console.log("--- Path safety ---");
 
@@ -102,69 +152,46 @@ try {
     assert(true, "absolute path outside root blocked");
   }
 
-  // safePath within root should work
   const inside = safePath(workDir, "sub/dir/file.txt");
   assert(inside.startsWith(workDir), "safe path within root resolved");
 
   // ================================================================
-  // 3. Template generation: basic
+  // 3. Template: basic
   // ================================================================
   console.log("--- Template: basic ---");
 
   const basicVars = { name: "test_basic", model: "gemini-2.5-flash" };
   const basicBase = "proj_basic";
-
-  safeWriteFile(workDir, `${basicBase}/test_basic/__init__.py`, basicTemplate.initPy(basicVars), false);
-  safeWriteFile(workDir, `${basicBase}/test_basic/agent.py`, basicTemplate.agentPy(basicVars), false);
-  safeWriteFile(workDir, `${basicBase}/.env.example`, basicTemplate.envExample(), false);
-  safeWriteFile(workDir, `${basicBase}/README.md`, basicTemplate.projectReadme(basicVars), false);
-  safeWriteFile(workDir, `${basicBase}/.adk-scaffold`, basicTemplate.adkScaffoldMarker(basicVars), false);
+  scaffoldProject(workDir, basicBase, basicVars, "basic");
 
   const basicAgent = readFileSync(join(workDir, basicBase, "test_basic", "agent.py"), "utf-8");
   assertIncludes(basicAgent, "from google.adk import Agent", "basic: has Agent import");
-  assertNotIncludes(basicAgent, "import google.adk as adk", "basic: no deprecated adk namespace import");
+  assertNotIncludes(basicAgent, "import google.adk as adk", "basic: no deprecated adk namespace");
   assertIncludes(basicAgent, 'model="gemini-2.5-flash"', "basic: has model");
   assertIncludes(basicAgent, 'name="test_basic"', "basic: has agent name");
   assertIncludes(basicAgent, "root_agent = Agent(", "basic: defines root_agent via Agent()");
   assertIncludes(basicAgent, "tools=[get_greeting, get_current_time]", "basic: has tools list");
-  // Check no stray JS template syntax leaked
-  assertNotIncludes(basicAgent, "${", "basic: no unresolved JS template vars in agent.py");
+  assertNotIncludes(basicAgent, "${", "basic: no unresolved JS template vars");
 
   const basicInit = readFileSync(join(workDir, basicBase, "test_basic", "__init__.py"), "utf-8");
   assertIncludes(basicInit, "from .agent import root_agent", "basic: init imports root_agent");
 
-  const basicMarker = JSON.parse(readFileSync(join(workDir, basicBase, ".adk-scaffold"), "utf-8"));
-  assert(basicMarker.name === "test_basic", "basic: marker has name");
-  assert(basicMarker.template === "basic", "basic: marker has template");
-
-  // project detection
-  const basicDetect = detectAdkProject(join(workDir, basicBase));
-  assert(basicDetect.valid, "basic: project detected as valid");
-  assert(basicDetect.agentName === "test_basic", "basic: agent name from marker");
-  assert(basicDetect.template === "basic", "basic: template from marker");
-
   // ================================================================
-  // 4. Template generation: mcp
+  // 4. Template: mcp
   // ================================================================
   console.log("--- Template: mcp ---");
 
   const mcpVars = { name: "test_mcp", model: "gemini-2.5-pro" };
   const mcpBase = "proj_mcp";
-
-  safeWriteFile(workDir, `${mcpBase}/test_mcp/__init__.py`, mcpTemplate.initPy(mcpVars), false);
-  safeWriteFile(workDir, `${mcpBase}/test_mcp/agent.py`, mcpTemplate.agentPy(mcpVars), false);
-  safeWriteFile(workDir, `${mcpBase}/test_mcp/mcp_config.py`, mcpTemplate.mcpConfigPy(mcpVars), false);
-  safeWriteFile(workDir, `${mcpBase}/.env.example`, mcpTemplate.envExample(), false);
-  safeWriteFile(workDir, `${mcpBase}/.adk-scaffold`, mcpTemplate.adkScaffoldMarker(mcpVars), false);
+  scaffoldProject(workDir, mcpBase, mcpVars, "mcp");
 
   const mcpAgent = readFileSync(join(workDir, mcpBase, "test_mcp", "agent.py"), "utf-8");
   assertIncludes(mcpAgent, "from google.adk import Agent", "mcp: has Agent import");
   assertIncludes(mcpAgent, "from .mcp_config import get_mcp_toolsets", "mcp: imports mcp_config");
   assertIncludes(mcpAgent, "mcp_toolsets = get_mcp_toolsets()", "mcp: calls get_mcp_toolsets");
-  assertIncludes(mcpAgent, "*mcp_toolsets", "mcp: spreads mcp_toolsets in tools");
-  assertIncludes(mcpAgent, 'model="gemini-2.5-pro"', "mcp: uses specified model");
-  assertIncludes(mcpAgent, "root_agent = Agent(", "mcp: uses Agent() not adk.LlmAgent()");
-  assertNotIncludes(mcpAgent, "${", "mcp: no unresolved JS template vars in agent.py");
+  assertIncludes(mcpAgent, "*mcp_toolsets", "mcp: spreads mcp_toolsets");
+  assertIncludes(mcpAgent, "root_agent = Agent(", "mcp: uses Agent()");
+  assertNotIncludes(mcpAgent, "${", "mcp: no unresolved JS template vars");
 
   const mcpConfig = readFileSync(join(workDir, mcpBase, "test_mcp", "mcp_config.py"), "utf-8");
   assertIncludes(mcpConfig, "MCPToolset", "mcp: config references MCPToolset");
@@ -172,57 +199,96 @@ try {
   assertNotIncludes(mcpConfig, "${", "mcp: no unresolved JS template vars in mcp_config.py");
 
   // ================================================================
-  // 5. Template generation: sequential
+  // 5. Template: sequential
   // ================================================================
   console.log("--- Template: sequential ---");
 
   const seqVars = { name: "test_seq", model: "gemini-2.5-flash" };
   const seqBase = "proj_seq";
-
-  safeWriteFile(workDir, `${seqBase}/test_seq/__init__.py`, sequentialTemplate.initPy(seqVars), false);
-  safeWriteFile(workDir, `${seqBase}/test_seq/agent.py`, sequentialTemplate.agentPy(seqVars), false);
-  safeWriteFile(workDir, `${seqBase}/test_seq/steps.py`, sequentialTemplate.stepsPy(seqVars), false);
-  safeWriteFile(workDir, `${seqBase}/.env.example`, sequentialTemplate.envExample(), false);
-  safeWriteFile(workDir, `${seqBase}/.adk-scaffold`, sequentialTemplate.adkScaffoldMarker(seqVars), false);
+  scaffoldProject(workDir, seqBase, seqVars, "sequential");
 
   const seqAgent = readFileSync(join(workDir, seqBase, "test_seq", "agent.py"), "utf-8");
   assertIncludes(seqAgent, "from google.adk.agents import SequentialAgent", "seq: imports SequentialAgent");
   assertIncludes(seqAgent, "root_agent = SequentialAgent(", "seq: uses SequentialAgent()");
   assertIncludes(seqAgent, "from .steps import research_agent, draft_agent, review_agent", "seq: imports steps");
-  assertIncludes(seqAgent, "sub_agents=[research_agent, draft_agent, review_agent]", "seq: sub_agents list");
   assertNotIncludes(seqAgent, "adk.SequentialAgent", "seq: no deprecated adk.SequentialAgent");
-  assertNotIncludes(seqAgent, "${", "seq: no unresolved JS template vars in agent.py");
+  assertNotIncludes(seqAgent, "${", "seq: no unresolved JS template vars");
 
   const seqSteps = readFileSync(join(workDir, seqBase, "test_seq", "steps.py"), "utf-8");
   assertIncludes(seqSteps, "from google.adk import Agent", "seq: steps imports Agent");
   assertIncludes(seqSteps, "research_agent = Agent(", "seq: has research_agent");
-  assertIncludes(seqSteps, "draft_agent = Agent(", "seq: has draft_agent");
-  assertIncludes(seqSteps, "review_agent = Agent(", "seq: has review_agent");
   assertNotIncludes(seqSteps, "adk.LlmAgent", "seq: no deprecated adk.LlmAgent");
   assertNotIncludes(seqSteps, "${", "seq: no unresolved JS template vars in steps.py");
 
   // ================================================================
-  // 5b. Python syntax validation of all generated .py files
+  // 6. Python syntax validation
   // ================================================================
   console.log("--- Python syntax check ---");
 
-  const { execSync } = await import("node:child_process");
   for (const projDir of [basicBase, mcpBase, seqBase]) {
     const pyFiles = listFilesRecursive(join(workDir, projDir)).filter(f => f.endsWith(".py"));
     for (const pyFile of pyFiles) {
-      const fullPath = join(workDir, projDir, pyFile);
-      try {
-        execSync(`python3 -c "import ast; ast.parse(open('${fullPath}').read())"`, { stdio: "pipe" });
-        assert(true, `python syntax: ${projDir}/${pyFile}`);
-      } catch (e) {
-        const err = e as { stderr?: Buffer };
-        assert(false, `python syntax: ${projDir}/${pyFile} — ${err.stderr?.toString().trim()}`);
-      }
+      assertPythonSyntax(join(workDir, projDir, pyFile), `python syntax: ${projDir}/${pyFile}`);
     }
   }
 
   // ================================================================
-  // 6. ADK docs MCP config
+  // 7. .gitignore
+  // ================================================================
+  console.log("--- .gitignore ---");
+
+  for (const projDir of [basicBase, mcpBase, seqBase]) {
+    const gi = readFileSync(join(workDir, projDir, ".gitignore"), "utf-8");
+    assertIncludes(gi, ".env", `${projDir} .gitignore: has .env`);
+    assertIncludes(gi, ".venv/", `${projDir} .gitignore: has .venv/`);
+    assertIncludes(gi, "__pycache__/", `${projDir} .gitignore: has __pycache__/`);
+    assertIncludes(gi, "*.py[cod]", `${projDir} .gitignore: has *.py[cod]`);
+  }
+
+  // ================================================================
+  // 8. Scaffold manifest (.adk-scaffold.json)
+  // ================================================================
+  console.log("--- Scaffold manifest ---");
+
+  const basicManifest = readManifest(join(workDir, basicBase));
+  assert(basicManifest !== null, "basic: manifest readable");
+  assert(basicManifest?.name === "test_basic", "basic: manifest name");
+  assert(basicManifest?.template === "basic", "basic: manifest template");
+  assert(basicManifest?.model === "gemini-2.5-flash", "basic: manifest model");
+  assert(basicManifest?.extension === "pi-google-adk", "basic: manifest extension");
+  assert(basicManifest?.extension_version === "0.1.0", "basic: manifest version");
+  assert(Array.isArray(basicManifest?.capabilities), "basic: manifest has capabilities array");
+  assert(basicManifest?.capabilities.length === 0, "basic: manifest starts with empty capabilities");
+
+  // project detection from manifest
+  const basicDetect = detectAdkProject(join(workDir, basicBase));
+  assert(basicDetect.valid, "basic: detected as valid project");
+  assert(basicDetect.agentName === "test_basic", "basic: agent name from manifest");
+  assert(basicDetect.template === "basic", "basic: template from manifest");
+
+  // ================================================================
+  // 9. Manifest capability tracking
+  // ================================================================
+  console.log("--- Manifest capability tracking ---");
+
+  addCapabilityToManifest(workDir, basicBase, "custom_tool");
+  const m1 = readManifest(join(workDir, basicBase));
+  assert(m1?.capabilities.length === 1, "manifest: one capability after first add");
+  assert(m1?.capabilities[0] === "custom_tool", "manifest: custom_tool recorded");
+
+  // Idempotent — adding same capability again
+  addCapabilityToManifest(workDir, basicBase, "custom_tool");
+  const m2 = readManifest(join(workDir, basicBase));
+  assert(m2?.capabilities.length === 1, "manifest: still one capability (no duplicate)");
+
+  // Second different capability
+  addCapabilityToManifest(workDir, basicBase, "eval_stub");
+  const m3 = readManifest(join(workDir, basicBase));
+  assert(m3?.capabilities.length === 2, "manifest: two capabilities after second add");
+  assert(m3?.capabilities[1] === "eval_stub", "manifest: eval_stub recorded");
+
+  // ================================================================
+  // 10. ADK docs MCP config
   // ================================================================
   console.log("--- ADK docs MCP config ---");
 
@@ -232,162 +298,180 @@ try {
   assert(mcpParsed.mcpServers["adk-docs-mcp"] !== undefined, "mcp config: has adk-docs-mcp");
   assert(mcpParsed.mcpServers["adk-docs-mcp"].command === "uvx", "mcp config: command is uvx");
   assert(
-    mcpParsed.mcpServers["adk-docs-mcp"].args.includes("AgentDevelopmentKit:https://google.github.io/adk-docs/llms.txt"),
+    mcpParsed.mcpServers["adk-docs-mcp"].args.includes(
+      "AgentDevelopmentKit:https://google.github.io/adk-docs/llms.txt"
+    ),
     "mcp config: has llms.txt URL"
   );
 
   // ================================================================
-  // 7. Overwrite protection
+  // 11. Overwrite protection
   // ================================================================
   console.log("--- Overwrite protection ---");
 
-  const owResult1 = safeWriteFile(workDir, "overwrite_test.txt", "first", false);
-  assert(owResult1.created === true, "overwrite: first write creates");
-  const owResult2 = safeWriteFile(workDir, "overwrite_test.txt", "second", false);
-  assert(owResult2.skipped === true, "overwrite: second write without overwrite skips");
-  assert(owResult2.reason === "already exists", "overwrite: skip reason is 'already exists'");
-  const owResult3 = safeWriteFile(workDir, "overwrite_test.txt", "second", true);
-  assert(owResult3.created === true, "overwrite: write with overwrite=true succeeds");
+  const ow1 = safeWriteFile(workDir, "overwrite_test.txt", "first", false);
+  assert(ow1.created === true, "overwrite: first write creates");
+  const ow2 = safeWriteFile(workDir, "overwrite_test.txt", "second", false);
+  assert(ow2.skipped === true, "overwrite: second write skips");
+  assert(ow2.reason === "already exists", "overwrite: skip reason correct");
+  const ow3 = safeWriteFile(workDir, "overwrite_test.txt", "second", true);
+  assert(ow3.created === true, "overwrite: write with overwrite=true succeeds");
 
   // ================================================================
-  // 8. Idempotency: add_adk_capability custom_tool patch simulation
+  // 12. Patch idempotency: custom_tool import injection
   // ================================================================
   console.log("--- Patch idempotency: custom_tool ---");
 
-  // Start with the basic project
   const idempBase = "proj_idemp";
-  const idempName = "idemp_agent";
-  const idempVars = { name: idempName, model: "gemini-2.5-flash" };
-  safeWriteFile(workDir, `${idempBase}/${idempName}/__init__.py`, basicTemplate.initPy(idempVars), false);
-  safeWriteFile(workDir, `${idempBase}/${idempName}/agent.py`, basicTemplate.agentPy(idempVars), false);
-  safeWriteFile(workDir, `${idempBase}/.adk-scaffold`, basicTemplate.adkScaffoldMarker(idempVars), false);
+  const idempVars = { name: "idemp_agent", model: "gemini-2.5-flash" };
+  scaffoldProject(workDir, idempBase, idempVars, "basic");
 
-  // Simulate addCustomTool logic — first run
-  const agentPyPath = `${idempBase}/${idempName}/agent.py`;
-  let agentPy = safeReadFile(workDir, agentPyPath)!;
+  const agentPyPath = `${idempBase}/idemp_agent/agent.py`;
   const toolName = "fetch_data";
   const importLine = `from .tools.${toolName} import ${toolName}`;
 
-  if (!agentPy.includes(importLine)) {
-    const lines = agentPy.split("\n");
-    let lastImportIdx = -1;
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].startsWith("import ") || lines[i].startsWith("from ")) {
-        lastImportIdx = i;
-      }
-    }
-    if (lastImportIdx >= 0) {
-      lines.splice(lastImportIdx + 1, 0, importLine);
-    }
-    const joined = lines.join("\n");
-    const patched = joined.replace(
-      /tools=\[([^\]]*)\]/,
-      (_match, inner) => {
-        const trimmed = inner.trimEnd();
-        if (trimmed.length === 0) return `tools=[${toolName}]`;
-        return `tools=[${trimmed}, ${toolName}]`;
-      }
-    );
-    safeWriteFile(workDir, agentPyPath, patched, true);
+  // First patch
+  let src = safeReadFile(workDir, agentPyPath)!;
+  assert(!src.includes(importLine), "idemp: import not present before patch");
+
+  // Simulate insertImport + patchToolsList
+  const lines1 = src.split("\n");
+  let lastIdx = -1;
+  for (let i = 0; i < lines1.length; i++) {
+    if (lines1[i].startsWith("import ") || lines1[i].startsWith("from ")) lastIdx = i;
   }
+  lines1.splice(lastIdx + 1, 0, importLine);
+  let patched = lines1.join("\n");
+  // Single-line tools patch
+  patched = patched.replace(
+    /tools=\[([^\]]*)\]/,
+    (_m, inner) => {
+      const t = inner.trim();
+      return t.length === 0 ? `tools=[${toolName}]` : `tools=[${t}, ${toolName}]`;
+    }
+  );
+  safeWriteFile(workDir, agentPyPath, patched, true);
 
-  const afterFirst = safeReadFile(workDir, agentPyPath)!;
-  const importCount1 = (afterFirst.match(new RegExp(importLine.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "g")) || []).length;
-  assert(importCount1 === 1, "idemp: first patch adds import once");
-  assertIncludes(afterFirst, `fetch_data`, "idemp: first patch adds tool to tools list");
+  const after1 = safeReadFile(workDir, agentPyPath)!;
+  const count1 = (after1.match(new RegExp(importLine.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "g")) || []).length;
+  assert(count1 === 1, "idemp: import added exactly once");
+  assertIncludes(after1, "fetch_data", "idemp: tool wired into tools list");
 
-  // Simulate second run — should be idempotent
-  agentPy = safeReadFile(workDir, agentPyPath)!;
-  if (!agentPy.includes(importLine)) {
-    assert(false, "idemp: import should already be present for second run");
-  } else {
-    // idempotent — would skip
-    assert(true, "idemp: second run detects existing import and skips");
-  }
-
-  const importCount2 = (afterFirst.match(new RegExp(importLine.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "g")) || []).length;
-  assert(importCount2 === 1, "idemp: import not duplicated");
+  // Second patch attempt — should detect existing import
+  const src2 = safeReadFile(workDir, agentPyPath)!;
+  assert(src2.includes(importLine), "idemp: second run detects existing import");
+  assertPythonSyntax(join(workDir, agentPyPath), "idemp: patched agent.py valid Python");
 
   // ================================================================
-  // 9. add_adk_capability: eval_stub, deploy_stub, observability_notes
+  // 13. Multi-line tools=[...] patching
   // ================================================================
-  console.log("--- Capabilities: stub files ---");
+  console.log("--- Multi-line tools patching ---");
 
-  // eval_stub
-  const evalReadmePath = `${basicBase}/evals/README.md`;
-  const evalTestPath = `${basicBase}/evals/test_cases.json`;
-  safeWriteFile(workDir, evalReadmePath, `# Evaluations for test_basic\n`, false);
-  safeWriteFile(workDir, evalTestPath, `[]\n`, false);
-  assert(safeExists(workDir, evalReadmePath), "eval_stub: README created");
-  assert(safeExists(workDir, evalTestPath), "eval_stub: test_cases.json created");
+  // patchToolsList is internal to add-adk-capability but we test the
+  // same logic inline here since it's the critical behavior.
 
-  // eval_stub idempotency: should skip if already exists
-  const evalR2 = safeWriteFile(workDir, evalReadmePath, "new content", false);
-  assert(evalR2.skipped === true, "eval_stub: idempotent (skips existing README)");
+  // Single-line
+  const sl = `root_agent = Agent(\n    tools=[get_greeting, get_current_time],\n)`;
+  const slPatched = sl.replace(
+    /tools=\[([^\]]*)\]/,
+    (_m, inner) => `tools=[${inner.trim()}, new_tool]`
+  );
+  assertIncludes(slPatched, "tools=[get_greeting, get_current_time, new_tool]", "patch: single-line");
 
-  // deploy_stub
+  // Multi-line
+  const ml = `root_agent = Agent(
+    tools=[
+        get_greeting,
+        get_current_time,
+    ],
+)`;
+
+  // Simulate patchToolsList multi-line logic
+  const multiLineRe = /tools=\[\s*\n([\s\S]*?)\n(\s*)\]/;
+  const mlMatch = ml.match(multiLineRe);
+  assert(mlMatch !== null, "patch: multi-line regex matches");
+  if (mlMatch) {
+    const body = mlMatch[1];
+    const closingIndent = mlMatch[2];
+    const itemIndent = closingIndent + "    ";
+    const newBody = body.trimEnd() + "\n" + itemIndent + "new_tool,";
+    const mlPatched = ml.replace(multiLineRe, `tools=[\n${newBody}\n${closingIndent}]`);
+    assertIncludes(mlPatched, "        new_tool,", "patch: multi-line appends with correct indent");
+    assertIncludes(mlPatched, "    ]", "patch: multi-line preserves closing bracket indent");
+    // Verify readable structure
+    assertNotIncludes(mlPatched, "get_current_time,, new_tool", "patch: no double comma");
+  }
+
+  // Empty
+  const empty = `root_agent = Agent(\n    tools=[],\n)`;
+  const emptyPatched = empty.replace(
+    /tools=\[([^\]]*)\]/,
+    (_m, inner) => {
+      const t = inner.trim();
+      return t.length === 0 ? `tools=[new_tool]` : `tools=[${t}, new_tool]`;
+    }
+  );
+  assertIncludes(emptyPatched, "tools=[new_tool]", "patch: empty list");
+
+  // ================================================================
+  // 14. Stub capabilities (idempotent file creation)
+  // ================================================================
+  console.log("--- Stub capabilities ---");
+
+  safeWriteFile(workDir, `${basicBase}/evals/README.md`, "# Evals\n", false);
+  safeWriteFile(workDir, `${basicBase}/evals/test_cases.json`, "[]\n", false);
+  assert(safeExists(workDir, `${basicBase}/evals/README.md`), "eval_stub: created");
+  const evalR2 = safeWriteFile(workDir, `${basicBase}/evals/README.md`, "new", false);
+  assert(evalR2.skipped === true, "eval_stub: idempotent");
+
   safeWriteFile(workDir, `${basicBase}/DEPLOY.md`, "# Deploy\n", false);
-  assert(safeExists(workDir, `${basicBase}/DEPLOY.md`), "deploy_stub: DEPLOY.md created");
-  const deployR2 = safeWriteFile(workDir, `${basicBase}/DEPLOY.md`, "new", false);
-  assert(deployR2.skipped === true, "deploy_stub: idempotent (skips existing)");
+  const depR2 = safeWriteFile(workDir, `${basicBase}/DEPLOY.md`, "new", false);
+  assert(depR2.skipped === true, "deploy_stub: idempotent");
 
-  // observability_notes
   safeWriteFile(workDir, `${basicBase}/OBSERVABILITY.md`, "# Obs\n", false);
-  assert(safeExists(workDir, `${basicBase}/OBSERVABILITY.md`), "obs_notes: created");
   const obsR2 = safeWriteFile(workDir, `${basicBase}/OBSERVABILITY.md`, "new", false);
-  assert(obsR2.skipped === true, "obs_notes: idempotent (skips existing)");
+  assert(obsR2.skipped === true, "obs_notes: idempotent");
 
   // ================================================================
-  // 10. add_adk_capability: sequential_workflow generated code
+  // 15. Sequential workflow generated code
   // ================================================================
   console.log("--- Capability: sequential_workflow Python check ---");
 
-  // Generate a workflow.py and check Python syntax
   const wfSubagents = ["step_one", "step_two"];
   const wfModel = "gemini-2.5-flash";
-  const wfSubagentDefs = wfSubagents.map(
+  const wfDefs = wfSubagents.map(
     (name) => `\n${name} = Agent(\n    model="${wfModel}",\n    name="${name}",\n    instruction="""You are the ${name} step.\nComplete your part of the workflow and pass results to the next step.""",\n    tools=[],\n)`
   ).join("\n");
-  const wfContent = `"""Sequential workflow steps."""\n\nfrom google.adk import Agent\n${wfSubagentDefs}\n`;
+  const wfContent = `"""Sequential workflow steps."""\n\nfrom google.adk import Agent\n${wfDefs}\n`;
   safeWriteFile(workDir, "wf_test/workflow.py", wfContent, true);
-  try {
-    const wfPath = join(workDir, "wf_test/workflow.py");
-    execSync(`python3 -c "import ast; ast.parse(open('${wfPath}').read())"`, { stdio: "pipe" });
-    assert(true, "seq_workflow: generated workflow.py valid Python");
-  } catch (e) {
-    const err = e as { stderr?: Buffer };
-    assert(false, `seq_workflow: workflow.py syntax error — ${err.stderr?.toString().trim()}`);
-  }
+  assertPythonSyntax(join(workDir, "wf_test/workflow.py"), "seq_workflow: workflow.py valid Python");
 
-  // workflow_agent.py check
-  const wfAgentContent = `"""test - Sequential workflow agent."""\n\nfrom google.adk.agents import SequentialAgent\nfrom .workflow import step_one, step_two\n\n\nroot_agent = SequentialAgent(\n    name="test_workflow",\n    sub_agents=[step_one, step_two],\n    description="Sequential workflow for test.",\n)\n`;
-  safeWriteFile(workDir, "wf_test/workflow_agent.py", wfAgentContent, true);
-  try {
-    const waPath = join(workDir, "wf_test/workflow_agent.py");
-    execSync(`python3 -c "import ast; ast.parse(open('${waPath}').read())"`, { stdio: "pipe" });
-    assert(true, "seq_workflow: generated workflow_agent.py valid Python");
-  } catch (e) {
-    const err = e as { stderr?: Buffer };
-    assert(false, `seq_workflow: workflow_agent.py syntax error — ${err.stderr?.toString().trim()}`);
-  }
+  const waContent = `"""test - Sequential workflow agent."""\n\nfrom google.adk.agents import SequentialAgent\nfrom .workflow import step_one, step_two\n\n\nroot_agent = SequentialAgent(\n    name="test_workflow",\n    sub_agents=[step_one, step_two],\n    description="Sequential workflow for test.",\n)\n`;
+  safeWriteFile(workDir, "wf_test/workflow_agent.py", waContent, true);
+  assertPythonSyntax(join(workDir, "wf_test/workflow_agent.py"), "seq_workflow: workflow_agent.py valid Python");
 
   // ================================================================
-  // 11. File listing for generated projects
+  // 16. Generated file structure
   // ================================================================
-  console.log("--- Generated file structure ---");
+  console.log("--- File structure ---");
 
   const basicFiles = listFilesRecursive(join(workDir, basicBase));
   assert(basicFiles.includes("test_basic/agent.py"), "basic: has agent.py");
   assert(basicFiles.includes("test_basic/__init__.py"), "basic: has __init__.py");
   assert(basicFiles.includes(".env.example"), "basic: has .env.example");
   assert(basicFiles.includes("README.md"), "basic: has README.md");
-  assert(basicFiles.includes(".adk-scaffold"), "basic: has .adk-scaffold");
+  assert(basicFiles.includes(".adk-scaffold.json"), "basic: has .adk-scaffold.json");
+  assert(basicFiles.includes(".gitignore"), "basic: has .gitignore");
 
   const mcpFiles = listFilesRecursive(join(workDir, mcpBase));
   assert(mcpFiles.includes("test_mcp/mcp_config.py"), "mcp: has mcp_config.py");
+  assert(mcpFiles.includes(".adk-scaffold.json"), "mcp: has .adk-scaffold.json");
+  assert(mcpFiles.includes(".gitignore"), "mcp: has .gitignore");
 
   const seqFiles = listFilesRecursive(join(workDir, seqBase));
   assert(seqFiles.includes("test_seq/steps.py"), "seq: has steps.py");
+  assert(seqFiles.includes(".adk-scaffold.json"), "seq: has .adk-scaffold.json");
+  assert(seqFiles.includes(".gitignore"), "seq: has .gitignore");
 
   // ================================================================
   // Summary

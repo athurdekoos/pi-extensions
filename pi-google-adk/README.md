@@ -65,10 +65,11 @@ agents/research_bot/
   research_bot/
     __init__.py
     agent.py
-    steps.py          # sequential template only
-    mcp_config.py     # mcp template only
+    steps.py              # sequential template only
+    mcp_config.py         # mcp template only
   .env.example
-  .adk-scaffold
+  .gitignore
+  .adk-scaffold.json
   README.md
   .pi/mcp/adk-docs.example.json
 ```
@@ -89,7 +90,7 @@ Add a capability to an existing ADK project.
 
 | Parameter | Type | Description |
 |---|---|---|
-| `project_path` | string | Path to the ADK project root |
+| `project_path` | string | Path to the ADK project root (must be within the workspace) |
 | `capability` | string | One of the capabilities below |
 | `options` | object | Capability-specific options |
 
@@ -103,6 +104,8 @@ Add a capability to an existing ADK project.
 | `eval_stub` | Creates an `evals/` directory with a starter stub |
 | `deploy_stub` | Creates a `DEPLOY.md` deployment notes document |
 | `observability_notes` | Creates an `OBSERVABILITY.md` with logging/tracing guidance |
+
+Each applied capability is recorded in `.adk-scaffold.json`.
 
 **Options:**
 
@@ -120,6 +123,25 @@ Add a capability to an existing ADK project.
 ```
 Add a custom tool called "fetch_data" to the project at ./agents/research_bot
 ```
+
+## Scaffold Manifest
+
+Every generated project includes a `.adk-scaffold.json` file:
+
+```json
+{
+  "name": "research_bot",
+  "template": "basic",
+  "model": "gemini-2.5-flash",
+  "extension": "pi-google-adk",
+  "extension_version": "0.1.0",
+  "capabilities": ["custom_tool", "eval_stub"]
+}
+```
+
+This manifest records what template was used, which model was selected,
+and which capabilities have been applied. Both tools use it for project
+detection and to avoid duplicate work.
 
 ## ADK Docs MCP
 
@@ -166,6 +188,7 @@ skill installation is possible.
 - **MVP scope** — Three templates, six capabilities, no production deployment automation
 - **Safe writes** — Path traversal is blocked; existing files are not overwritten unless `overwrite: true`
 - **Idempotent patching** — `add_adk_capability` checks for existing imports and files before writing
+- **Multi-line safe** — `tools=[...]` patching handles both single-line and multi-line formatting
 
 ## Verification
 
@@ -175,13 +198,16 @@ Type-check and run the verification suite:
 npm run verify
 ```
 
-This runs TypeScript type checking followed by a test script that exercises:
+This runs TypeScript type checking followed by 114 automated checks covering:
 - input validation (names, paths)
 - path traversal rejection
 - all three template generators
 - Python syntax validation of generated code
+- `.gitignore` content
+- scaffold manifest creation and capability tracking
 - overwrite protection
 - patch idempotency
+- multi-line `tools=[...]` patching
 - stub capability file creation
 
 Manual test:

@@ -161,10 +161,4 @@ See: https://google.github.io/adk-docs/
 `;
 }
 
-export function adkScaffoldMarker(v: TemplateVars): string {
-  return JSON.stringify(
-    { name: v.name, template: "sequential", model: v.model, version: "0.1.0" },
-    null,
-    2
-  ) + "\n";
-}
+

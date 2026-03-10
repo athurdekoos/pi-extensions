@@ -4,13 +4,15 @@
  * Scaffolds a new Python Google ADK project from templates.
  */
 
-import { resolve } from "node:path";
+import { resolve, relative } from "node:path";
 import { Type } from "@sinclair/typebox";
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { safeWriteFile, safeExists, type WriteResult } from "../lib/fs-safe.js";
 import { validateAgentName } from "../lib/validators.js";
 import { adkDocsMcpConfig } from "../lib/adk-docs-mcp.js";
+import { createManifest, serializeManifest, MANIFEST_FILENAME } from "../lib/scaffold-manifest.js";
+import { gitignore } from "../templates/shared.js";
 import * as basicTemplate from "../templates/python-basic/files.js";
 import * as mcpTemplate from "../templates/python-mcp/files.js";
 import * as sequentialTemplate from "../templates/python-sequential/files.js";
@@ -77,11 +79,16 @@ export function registerCreateAdkAgent(pi: ExtensionAPI): void {
 
       const targetPath = params.path ?? `./agents/${name}`;
       const cwd = process.cwd();
-      const projectRoot = resolve(cwd, targetPath);
+
+      // Validate target path stays within workspace
+      const pathError = validateTargetPath(cwd, targetPath);
+      if (pathError) {
+        return errorResult(pathError);
+      }
 
       // Guard: check if target exists and overwrite is false
       if (safeExists(cwd, targetPath) && !overwrite) {
-        const marker = safeExists(cwd, `${targetPath}/.adk-scaffold`);
+        const marker = safeExists(cwd, `${targetPath}/${MANIFEST_FILENAME}`);
         if (marker) {
           return errorResult(
             `Target path "${targetPath}" already contains an ADK project. Use overwrite: true to replace.`
@@ -107,26 +114,32 @@ export function registerCreateAdkAgent(pi: ExtensionAPI): void {
             return errorResult(`Unknown template: ${template}`);
         }
 
+        // .gitignore
+        results.push(
+          safeWriteFile(cwd, `${targetPath}/.gitignore`, gitignore(), overwrite)
+        );
+
         // ADK docs MCP example
         if (addDocsMcp) {
-          const mcpResult = safeWriteFile(
-            cwd,
-            `${targetPath}/.pi/mcp/adk-docs.example.json`,
-            adkDocsMcpConfig(),
-            overwrite
+          results.push(
+            safeWriteFile(
+              cwd,
+              `${targetPath}/.pi/mcp/adk-docs.example.json`,
+              adkDocsMcpConfig(),
+              overwrite
+            )
           );
-          results.push(mcpResult);
         }
 
-        // Scaffold marker for project detection
-        const markerContent =
-          template === "basic"
-            ? basicTemplate.adkScaffoldMarker(vars)
-            : template === "mcp"
-              ? mcpTemplate.adkScaffoldMarker(vars)
-              : sequentialTemplate.adkScaffoldMarker(vars);
+        // Scaffold manifest
+        const manifest = createManifest(name, template, model);
         results.push(
-          safeWriteFile(cwd, `${targetPath}/.adk-scaffold`, markerContent, overwrite)
+          safeWriteFile(
+            cwd,
+            `${targetPath}/${MANIFEST_FILENAME}`,
+            serializeManifest(manifest),
+            overwrite
+          )
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -174,6 +187,26 @@ export function registerCreateAdkAgent(pi: ExtensionAPI): void {
       };
     },
   });
+}
+
+// ── Path validation ───────────────────────────────────────────────────
+
+/**
+ * Return an error string if the target path escapes the workspace root.
+ * Returns null if valid.
+ */
+function validateTargetPath(cwd: string, targetPath: string): string | null {
+  const resolvedCwd = resolve(cwd);
+  const resolvedTarget = resolve(cwd, targetPath);
+  const rel = relative(resolvedCwd, resolvedTarget);
+  if (rel.startsWith("..")) {
+    return (
+      `project_path "${targetPath}" resolves outside the workspace root. ` +
+      `Resolved: ${resolvedTarget}. Workspace: ${resolvedCwd}. ` +
+      `Use a relative path within the current working directory.`
+    );
+  }
+  return null;
 }
 
 // ── Template scaffolders ──────────────────────────────────────────────

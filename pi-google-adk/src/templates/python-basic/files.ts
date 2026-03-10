@@ -121,10 +121,4 @@ Start by editing \`${v.name}/agent.py\`:
 `;
 }
 
-export function adkScaffoldMarker(v: TemplateVars): string {
-  return JSON.stringify(
-    { name: v.name, template: "basic", model: v.model, version: "0.1.0" },
-    null,
-    2
-  ) + "\n";
-}
+

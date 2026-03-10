@@ -5,13 +5,14 @@
  */
 
 import { readdirSync, statSync, existsSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, relative, join } from "node:path";
 import { Type } from "@sinclair/typebox";
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { safeWriteFile, safeReadFile, safeExists, type WriteResult } from "../lib/fs-safe.js";
 import { detectAdkProject } from "../lib/project-detect.js";
 import { validateToolName } from "../lib/validators.js";
+import { addCapabilityToManifest } from "../lib/scaffold-manifest.js";
 
 export const AddAdkCapabilityParams = Type.Object({
   project_path: Type.String({ description: "Path to the ADK project root" }),
@@ -71,6 +72,12 @@ export function registerAddAdkCapability(pi: ExtensionAPI): void {
       const options = params.options ?? {};
       const cwd = process.cwd();
 
+      // Validate project_path stays within workspace
+      const pathError = validateProjectPath(cwd, projectPath);
+      if (pathError) {
+        return errorResult(projectPath, capability, pathError);
+      }
+
       // Validate project
       const projectRoot = resolve(cwd, projectPath);
       const info = detectAdkProject(projectRoot);
@@ -83,33 +90,106 @@ export function registerAddAdkCapability(pi: ExtensionAPI): void {
         return errorResult(
           projectPath,
           capability,
-          "Could not determine agent name. Ensure the project has a .adk-scaffold marker or a recognizable agent directory."
+          "Could not determine agent name. Ensure the project has a .adk-scaffold.json marker or a recognizable agent directory."
         );
       }
 
       try {
+        let result;
         switch (capability) {
           case "custom_tool":
-            return addCustomTool(cwd, projectPath, agentName, options);
+            result = addCustomTool(cwd, projectPath, agentName, options);
+            break;
           case "mcp_toolset":
-            return addMcpToolset(cwd, projectPath, agentName, options);
+            result = addMcpToolset(cwd, projectPath, agentName, options);
+            break;
           case "sequential_workflow":
-            return addSequentialWorkflow(cwd, projectPath, agentName, options);
+            result = addSequentialWorkflow(cwd, projectPath, agentName, options);
+            break;
           case "eval_stub":
-            return addEvalStub(cwd, projectPath, agentName);
+            result = addEvalStub(cwd, projectPath, agentName);
+            break;
           case "deploy_stub":
-            return addDeployStub(cwd, projectPath, agentName);
+            result = addDeployStub(cwd, projectPath, agentName);
+            break;
           case "observability_notes":
-            return addObservabilityNotes(cwd, projectPath, agentName);
+            result = addObservabilityNotes(cwd, projectPath, agentName);
+            break;
           default:
             return errorResult(projectPath, capability, `Unknown capability: ${capability}`);
         }
+
+        // Record the capability in the scaffold manifest
+        const details = result.details as CapabilityResult;
+        if (details.ok) {
+          addCapabilityToManifest(cwd, projectPath, capability);
+        }
+
+        return result;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return errorResult(projectPath, capability, `Failed: ${msg}`);
       }
     },
   });
+}
+
+// ── Path validation ──────────────────────────────────────────────────
+
+function validateProjectPath(cwd: string, projectPath: string): string | null {
+  const resolvedCwd = resolve(cwd);
+  const resolvedTarget = resolve(cwd, projectPath);
+  const rel = relative(resolvedCwd, resolvedTarget);
+  if (rel.startsWith("..")) {
+    return (
+      `project_path "${projectPath}" resolves outside the workspace root. ` +
+      `Resolved: ${resolvedTarget}. Workspace: ${resolvedCwd}. ` +
+      `Use a relative path within the current working directory.`
+    );
+  }
+  return null;
+}
+
+// ── tools=[...] patching ─────────────────────────────────────────────
+
+/**
+ * Append an entry to a Python tools=[...] list, handling both single-line
+ * and multi-line formatting.
+ *
+ * Single-line:  tools=[a, b]        -> tools=[a, b, new]
+ * Multi-line:   tools=[             -> tools=[
+ *                   a,                      a,
+ *                   b,                      b,
+ *               ]                           new,
+ *                                       ]
+ * Empty:        tools=[]             -> tools=[new]
+ */
+function patchToolsList(source: string, newEntry: string): string {
+  // Multi-line: tools=[\n  ...\n<indent>]
+  const multiLine = /tools=\[\s*\n([\s\S]*?)\n(\s*)\]/;
+  const mlMatch = source.match(multiLine);
+  if (mlMatch) {
+    const body = mlMatch[1];
+    const closingIndent = mlMatch[2];
+    // Derive item indent from the closing bracket indent + 4 spaces
+    const itemIndent = closingIndent + "    ";
+    const newBody = body.trimEnd() + "\n" + itemIndent + newEntry + ",";
+    return source.replace(multiLine, `tools=[\n${newBody}\n${closingIndent}]`);
+  }
+
+  // Single-line: tools=[...]
+  const singleLine = /tools=\[([^\]]*)\]/;
+  const slMatch = source.match(singleLine);
+  if (slMatch) {
+    const inner = slMatch[1].trim();
+    if (inner.length === 0) {
+      return source.replace(singleLine, `tools=[${newEntry}]`);
+    }
+    return source.replace(singleLine, `tools=[${inner}, ${newEntry}]`);
+  }
+
+  // No tools= list found — return unchanged
+  return source;
 }
 
 // ── Capability: custom_tool ───────────────────────────────────────────
@@ -160,7 +240,6 @@ __all__ = ["${toolName}"]
 `;
   const toolsInitPath = `${base}/${agentName}/tools/__init__.py`;
   if (safeExists(cwd, toolsInitPath)) {
-    // Append import to existing __init__.py
     const existing = safeReadFile(cwd, toolsInitPath);
     if (existing && !existing.includes(`from .${toolName}`)) {
       const updated = existing.trimEnd() + `\nfrom .${toolName} import ${toolName}\n`;
@@ -179,32 +258,9 @@ __all__ = ["${toolName}"]
   if (agentPy) {
     const importLine = `from .tools.${toolName} import ${toolName}`;
     if (!agentPy.includes(importLine)) {
-      // Add import after last import line
-      const lines = agentPy.split("\n");
-      let lastImportIdx = -1;
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].startsWith("import ") || lines[i].startsWith("from ")) {
-          lastImportIdx = i;
-        }
-      }
-      if (lastImportIdx >= 0) {
-        lines.splice(lastImportIdx + 1, 0, importLine);
-      } else {
-        lines.unshift(importLine);
-      }
-
-      // Add tool to tools= list if present
-      const joined = lines.join("\n");
-      const toolsListPatched = joined.replace(
-        /tools=\[([^\]]*)\]/,
-        (match, inner) => {
-          const trimmed = inner.trimEnd();
-          if (trimmed.length === 0) return `tools=[${toolName}]`;
-          return `tools=[${trimmed}, ${toolName}]`;
-        }
-      );
-
-      results.push(safeWriteFile(cwd, agentPyPath, toolsListPatched, true));
+      const withImport = insertImport(agentPy, importLine);
+      const patched = patchToolsList(withImport, toolName);
+      results.push(safeWriteFile(cwd, agentPyPath, patched, true));
       modified.push(agentPyPath);
     } else {
       notes.push("agent.py already imports this tool");
@@ -224,7 +280,6 @@ function addMcpToolset(
   agentName: string,
   options: Record<string, unknown>
 ): ReturnType<typeof makeResult> {
-  const serverName = (options.server_name as string) ?? "example_server";
   const serverCommand = (options.server_command as string) ?? "npx";
   const serverArgs = (options.server_args as string[]) ?? ["-y", "@modelcontextprotocol/server-example"];
 
@@ -267,7 +322,9 @@ def get_mcp_toolsets() -> list:
   const agentPy = safeReadFile(cwd, agentPyPath);
   if (agentPy && !agentPy.includes("mcp_config")) {
     const importLine = "from .mcp_config import get_mcp_toolsets";
-    const lines = agentPy.split("\n");
+    let patched = insertImport(agentPy, importLine);
+    // Add assignment after imports
+    const lines = patched.split("\n");
     let lastImportIdx = -1;
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].startsWith("import ") || lines[i].startsWith("from ")) {
@@ -275,19 +332,11 @@ def get_mcp_toolsets() -> list:
       }
     }
     if (lastImportIdx >= 0) {
-      lines.splice(lastImportIdx + 1, 0, "", importLine, "mcp_toolsets = get_mcp_toolsets()");
+      lines.splice(lastImportIdx + 1, 0, "mcp_toolsets = get_mcp_toolsets()");
     }
+    patched = lines.join("\n");
 
-    // Wire into tools list
-    const joined = lines.join("\n");
-    const patched = joined.replace(
-      /tools=\[([^\]]*)\]/,
-      (match, inner) => {
-        const trimmed = inner.trimEnd();
-        if (trimmed.length === 0) return "tools=[*mcp_toolsets]";
-        return `tools=[${trimmed}, *mcp_toolsets]`;
-      }
-    );
+    patched = patchToolsList(patched, "*mcp_toolsets");
 
     results.push(safeWriteFile(cwd, agentPyPath, patched, true));
     modified.push(agentPyPath);
@@ -358,7 +407,6 @@ root_agent = SequentialAgent(
     description="Sequential workflow for ${agentName}.",
 )
 `;
-    // Write as workflow_agent.py to avoid clobbering existing agent.py
     results.push(
       safeWriteFile(cwd, `${base}/${agentName}/workflow_agent.py`, workflowAgentPy, false)
     );
@@ -581,6 +629,25 @@ Use \`adk web .\` which provides a built-in trace viewer in the dev UI.
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Insert an import line after the last existing import in a Python source file.
+ */
+function insertImport(source: string, importLine: string): string {
+  const lines = source.split("\n");
+  let lastImportIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith("import ") || lines[i].startsWith("from ")) {
+      lastImportIdx = i;
+    }
+  }
+  if (lastImportIdx >= 0) {
+    lines.splice(lastImportIdx + 1, 0, importLine);
+  } else {
+    lines.unshift(importLine);
+  }
+  return lines.join("\n");
+}
 
 function detectAgentDirName(projectRoot: string): string | null {
   try {
