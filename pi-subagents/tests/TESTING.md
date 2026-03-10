@@ -63,6 +63,7 @@ Extension discovery and loading verification through the real pi loader.
 | File | Protects |
 |---|---|
 | `extension-discovery.test.ts` | Pi discovers and loads `pi-subagents` through `discoverAndLoadExtensions`; `delegate_to_subagent` is available after real loading; tool is absent when extension path is not provided; `.pi/extensions` directory discovery works; symlinked packages are discoverable; `pi.extensions` manifest is respected; tool metadata and schema shape are correct after real loading |
+| `post-load-invocation.test.ts` | The loaded tool can actually be invoked through the real-loaded runtime surface; invocation reaches the real tool body (not a stub or guard rejection); both `read_only` and `coding` modes reach distinct branches; separate loads produce independently invocable tools; tool metadata is non-trivial (guards against degenerate stubs) |
 
 #### What these smoke tests prove
 
@@ -70,6 +71,7 @@ Extension discovery and loading verification through the real pi loader.
 - `discoverAndLoadExtensions` can find and load the extension from a configured path, a `.pi/extensions` symlink, or a package root with `pi.extensions` manifest.
 - The tool `delegate_to_subagent` is registered and has the correct schema when loaded through the real discovery path.
 - The extension is NOT discovered when it is not on any configured or standard path.
+- **Post-load invocation**: the registered tool's `execute()` can be called after real discovery/loading, reaches the real tool body, and returns a structured result (success or honest runtime error). This proves the full chain: discover → load → register → expose → invoke.
 
 #### What they do NOT prove
 
@@ -83,7 +85,9 @@ The existing extension and integration tests import the extension module directl
 
 The smoke tests never import the extension source. They reference it only as a filesystem path target for `discoverAndLoadExtensions`. If the extension cannot be discovered and loaded by the real pi loader, these tests fail even if the direct-import tests pass.
 
-A self-check guard in the smoke test file verifies at module load time that no direct import of the extension source is present in the test code (excluding comments).
+The post-load invocation tests go one step further: they prove the loaded tool is not merely present but actually callable, and that the invocation reaches the real implementation body. If the tool can be discovered but not invoked, these tests fail.
+
+A self-check guard in each smoke test file verifies at module load time that no direct import of the extension source is present in the test code (excluding comments).
 
 ## How Trap Tests Prove Real Tool Use
 

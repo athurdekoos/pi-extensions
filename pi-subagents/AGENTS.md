@@ -63,6 +63,7 @@ pi-subagents/
       parallel-subagents-traps.test.ts
     smoke/
       extension-discovery.test.ts
+      post-load-invocation.test.ts
     llm/
       real-veracity.test.ts
 ```
@@ -143,7 +144,7 @@ npm run test:smoke    # extension discovery/loading smoke tests
 | Extension | `tests/extension/` | 18 | fast |
 | Integration | `tests/integration/` | 21 | fast |
 | Veracity (mock) | `tests/veracity/` | 23 | fast |
-| Smoke | `tests/smoke/` | 15 | fast |
+| Smoke | `tests/smoke/` | 19 | fast |
 | Veracity (LLM) | `tests/llm/` | 5 | slow (~15s, requires API key) |
 
 ### When to add tests
@@ -191,7 +192,7 @@ pi -e ./index.ts
 ## Definition of Done
 A change in this extension is done when:
 - behavior matches the request
-- `npm run test:all` passes (118 tests)
+- `npm run test:all` passes (122 tests)
 - new tests protect intended behavior
 - documentation is updated if needed
 - no obvious dead code or placeholder comments remain
