@@ -8,8 +8,8 @@ A collection of extensions for [`@mariozechner/pi-coding-agent`](https://github.
 |-----------|-------------|--------|
 | [pi-clear](./pi-clear/) | `/clear` command to start a fresh session, optionally carrying over the editor draft | Ready |
 | [pi-gh](./pi-gh/) | Structured GitHub CLI tools for issues, PRs, Actions, and repo info | Ready |
-| [pi-subagents](./pi-subagents/) | Sub-agent orchestration with bounded child sessions and ADK agent delegation | Ready |
-| [pi-google-adk](./pi-google-adk/) | Scaffold, discover, resolve, and run Python-first Google ADK agent projects | Ready |
+| [pi-subagents](./pi-subagents/) | Sub-agent orchestration with bounded child sessions and ADK agent delegation | In Progress |
+| [pi-google-adk](./pi-google-adk/) | Scaffold, discover, resolve, and run Python-first Google ADK agent projects | In Progress |
 
 ## Cross-extension integration
 
