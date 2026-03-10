@@ -1,35 +1,80 @@
 # pi-google-adk
 
-A Pi extension for scaffolding Python-first Google ADK (Agent Development Kit) projects.
+A Pi extension for scaffolding Python-first Google ADK (Agent Development Kit) projects locally.
 
-Registers two LLM-callable tools for creating and extending ADK agent projects locally.
+Registers two LLM-callable tools:
 
-## When to Use
+- **`create_adk_agent`** — scaffold a new ADK project from a template
+- **`add_adk_capability`** — add tools, MCP, workflows, evals, and docs to an existing project
 
-- You want to scaffold a new Google ADK agent project quickly
-- You want to add capabilities (tools, MCP, workflows, evals) to an existing ADK project
-- You want deterministic, template-driven scaffolding — not freeform generation
+All output is deterministic and template-driven. No AI-generated code at runtime.
+
+## Quick Start
+
+```bash
+git clone <repo-url> && cd pi-google-adk
+npm install
+pi -e ./src/index.ts
+```
+
+Then talk to Pi:
+
+```
+Create a basic ADK agent called research_bot
+```
+
+```
+Add a custom tool called fetch_data to ./agents/research_bot
+```
+
+```
+Create a sequential agent called pipeline_bot at ./agents/pipeline_bot
+```
+
+```
+Add an eval stub to the project at ./agents/research_bot
+```
+
+That is all you need to get started. The rest of this document is reference.
 
 ## Installation
 
-From this directory:
+### Prerequisites
+
+- Node.js (for npm)
+- Pi (`@mariozechner/pi-coding-agent` 0.57+)
+- Python 3.11+ and `pip install google-adk` (for the generated projects, not for this extension)
+- A Google API key (for Gemini models in the generated projects)
+
+### Install dependencies
+
+From the extension directory:
 
 ```bash
 npm install
 ```
 
-Load the extension in Pi:
+### Load in Pi
+
+**Option A — direct load (recommended for trying it out):**
 
 ```bash
 pi -e ./src/index.ts
 ```
 
-Or place it in your Pi extensions directory and reference it via `package.json`:
+**Option B — auto-discovery via Pi extensions directory:**
+
+Copy or symlink the extension folder into `~/.pi/agent/extensions/` or `.pi/extensions/`
+in your project. Pi loads it automatically on startup.
+
+**Option C — reference from a Pi package manifest:**
+
+Add to your project's `package.json`:
 
 ```json
 {
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": ["./path/to/pi-google-adk/src/index.ts"]
   }
 }
 ```
@@ -40,33 +85,23 @@ Or place it in your Pi extensions directory and reference it via `package.json`:
 
 Scaffold a new Python Google ADK project.
 
-**Parameters:**
-
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `name` | string | (required) | Agent name (lowercase, underscores) |
-| `path` | string | `./agents/<name>` | Target directory |
+| `name` | string | *(required)* | Agent name (lowercase, alphanumeric, underscores) |
+| `path` | string | `./agents/<name>` | Target directory (must be within the workspace) |
 | `template` | `basic` \| `mcp` \| `sequential` | `basic` | Project template |
-| `model` | string | `gemini-2.5-flash` | Gemini model |
-| `install_adk_skills` | boolean | `true` | Best-effort ADK skill install (see note below) |
-| `add_adk_docs_mcp` | boolean | `true` | Emit ADK docs MCP example config |
+| `model` | string | `gemini-2.5-flash` | Gemini model for the generated agent |
+| `install_adk_skills` | boolean | `true` | Best-effort only; see Limitations |
+| `add_adk_docs_mcp` | boolean | `true` | Emit a local ADK docs MCP example config |
 | `overwrite` | boolean | `false` | Overwrite existing files |
 
-**Example:**
-
-```
-Create a new ADK agent called "research_bot" using the sequential template
-```
-
-The tool creates:
+**Generated project structure (basic template):**
 
 ```
 agents/research_bot/
   research_bot/
     __init__.py
     agent.py
-    steps.py              # sequential template only
-    mcp_config.py         # mcp template only
   .env.example
   .gitignore
   .adk-scaffold.json
@@ -74,25 +109,25 @@ agents/research_bot/
   .pi/mcp/adk-docs.example.json
 ```
 
+The `mcp` template adds `mcp_config.py`. The `sequential` template adds `steps.py`.
+
 **Generated Python imports:**
 
-- Basic and MCP templates use `from google.adk import Agent`
-- Sequential template uses `from google.adk.agents import SequentialAgent`
-- MCP config uses `from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioServerParameters`
+- Basic and MCP templates: `from google.adk import Agent`
+- Sequential template: `from google.adk.agents import SequentialAgent`
+- MCP config: `from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioServerParameters`
 
-These match `google-adk` 1.x API conventions. `Agent` is the public alias for `LlmAgent`.
+These match `google-adk` 1.x API conventions.
 
 ### `add_adk_capability`
 
 Add a capability to an existing ADK project.
 
-**Parameters:**
-
 | Parameter | Type | Description |
 |---|---|---|
 | `project_path` | string | Path to the ADK project root (must be within the workspace) |
 | `capability` | string | One of the capabilities below |
-| `options` | object | Capability-specific options |
+| `options` | object | Capability-specific options (see below) |
 
 **Capabilities:**
 
@@ -105,28 +140,53 @@ Add a capability to an existing ADK project.
 | `deploy_stub` | Creates a `DEPLOY.md` deployment notes document |
 | `observability_notes` | Creates an `OBSERVABILITY.md` with logging/tracing guidance |
 
-Each applied capability is recorded in `.adk-scaffold.json`.
-
-**Options:**
+**Capability options:**
 
 | Option | Used by | Description |
 |---|---|---|
 | `tool_name` | `custom_tool` | Name for the new tool function |
-| `server_name` | `mcp_toolset` | MCP server display name |
 | `server_command` | `mcp_toolset` | MCP server command |
 | `server_args` | `mcp_toolset` | MCP server arguments |
 | `subagents` | `sequential_workflow` | List of subagent names |
 | `model` | `sequential_workflow` | Model for new subagents |
 
-**Example:**
+Each applied capability is recorded in `.adk-scaffold.json` and checked for duplicates on re-application.
+
+## Example Prompts
+
+These are natural-language prompts you can use in a Pi session with this extension loaded:
+
+**Scaffolding:**
 
 ```
-Add a custom tool called "fetch_data" to the project at ./agents/research_bot
+Create a basic ADK agent called my_assistant
+```
+
+```
+Scaffold an MCP agent called data_bot with model gemini-2.5-pro
+```
+
+```
+Create a sequential agent called review_pipeline at ./projects/review_pipeline
+```
+
+**Adding capabilities:**
+
+```
+Add a custom tool called search_docs to the project at ./agents/my_assistant
+```
+
+```
+Add MCP toolset support to ./agents/data_bot
+```
+
+```
+Add eval, deploy, and observability stubs to ./agents/my_assistant
 ```
 
 ## Scaffold Manifest
 
-Every generated project includes a `.adk-scaffold.json` file:
+Every generated project includes `.adk-scaffold.json`:
 
 ```json
 {
@@ -139,9 +199,7 @@ Every generated project includes a `.adk-scaffold.json` file:
 }
 ```
 
-This manifest records what template was used, which model was selected,
-and which capabilities have been applied. Both tools use it for project
-detection and to avoid duplicate work.
+Both tools use this manifest for project detection and duplicate avoidance.
 
 ## ADK Docs MCP
 
@@ -151,44 +209,24 @@ MCP config at `.pi/mcp/adk-docs.example.json` inside the generated project.
 This file is a **local example only**. It is not installed globally. To use it,
 review the file and adapt it into your Pi MCP configuration manually.
 
-The config connects to the ADK documentation via `llms.txt`:
+## Limitations
 
-```json
-{
-  "mcpServers": {
-    "adk-docs-mcp": {
-      "command": "uvx",
-      "args": [
-        "--from", "mcpdoc", "mcpdoc",
-        "--urls", "AgentDevelopmentKit:https://google.github.io/adk-docs/llms.txt",
-        "--transport", "stdio"
-      ]
-    }
-  }
-}
-```
+These are known, intentional constraints of the current MVP:
 
-## `install_adk_skills` Behavior
+- **`install_adk_skills` is a no-op.** The parameter exists as a future hook. When `true`, the tool returns a note suggesting manual installation. It never fails the tool call.
+- **Python only.** No TypeScript, Go, or Java scaffolding.
+- **Three templates, six capabilities.** No production deployment automation.
+- **Regex-based `tools=[...]` patching.** Targets generated code patterns only. If you heavily restructure `agent.py` by hand, `add_adk_capability` patching may not find the insertion point. The tool still creates the files; it just cannot wire them automatically.
+- **Manifest is informational.** `.adk-scaffold.json` is not load-bearing. Deleting or editing it does not break the generated project.
+- **No custom Pi renderers.** Tool output is plain JSON. Pi renders it as-is.
+- **ADK docs MCP is an example.** The emitted config is project-local and must be manually adapted into your Pi MCP settings.
 
-The `install_adk_skills` parameter is **best-effort / graceful degradation only**.
+## Safety
 
-The current implementation does not automatically install Pi skills. When
-`install_adk_skills` is `true`, the tool returns a note suggesting manual
-installation. The tool never fails due to skill installation being unavailable.
-
-This parameter exists as a hook for future environments where programmatic
-skill installation is possible.
-
-## Design Notes
-
-- **Python only** — No TypeScript, Go, or Java scaffolding
-- **Template-driven** — All output is deterministic; no AI-generated code at runtime
-- **Local only** — All filesystem operations are relative to the current workspace
-- **ADK docs MCP is an example** — Emitted as a project-local file, never globally installed
-- **MVP scope** — Three templates, six capabilities, no production deployment automation
-- **Safe writes** — Path traversal is blocked; existing files are not overwritten unless `overwrite: true`
-- **Idempotent patching** — `add_adk_capability` checks for existing imports and files before writing
-- **Multi-line safe** — `tools=[...]` patching handles both single-line and multi-line formatting
+- All paths are validated to stay within the current workspace. Path traversal is blocked.
+- Existing files are not overwritten unless `overwrite: true` is explicitly set.
+- No global config, credentials, or files outside the workspace are read or written.
+- No network requests. No background processes.
 
 ## Verification
 
@@ -198,35 +236,24 @@ Type-check and run the verification suite:
 npm run verify
 ```
 
-This runs TypeScript type checking followed by 114 automated checks covering:
-- input validation (names, paths)
-- path traversal rejection
-- all three template generators
-- Python syntax validation of generated code
-- `.gitignore` content
-- scaffold manifest creation and capability tracking
-- overwrite protection
-- patch idempotency
-- multi-line `tools=[...]` patching
-- stub capability file creation
+This runs TypeScript type checking followed by 114 automated checks covering
+input validation, path traversal rejection, all three templates, Python syntax
+validation, `.gitignore` content, manifest tracking, overwrite protection,
+patch idempotency, multi-line `tools=[...]` patching, and stub file creation.
 
-Manual test:
+## Release Checklist
 
-```bash
-pi -e ./src/index.ts
-# Then ask: "Create a basic ADK agent called test_agent"
-# Then ask: "Add a custom tool called fetch_data to ./agents/test_agent"
-```
+Before tagging a release:
+
+- [ ] `npm run verify` passes (114 checks, 0 failures)
+- [ ] `npm run typecheck` passes with no errors
+- [ ] Manual smoke test: `pi -e ./src/index.ts` loads both tools
+- [ ] Manual smoke test: create one project per template, inspect output
+- [ ] Manual smoke test: apply at least `custom_tool` and `eval_stub`, confirm manifest
+- [ ] CHANGELOG.md updated with release entry
+- [ ] Version in `package.json` matches version in `src/lib/scaffold-manifest.ts`
 
 ## Dependencies
 
 - `@mariozechner/pi-coding-agent` — Pi extension API
 - `@sinclair/typebox` — JSON schema for tool parameters
-
-## Requirements
-
-For the generated ADK projects (not for this extension):
-
-- Python 3.11+
-- `pip install google-adk`
-- A Google API key (for Gemini models)

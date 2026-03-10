@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository contains **Pi extensions** intended to work well with **`@mariozechner/pi-coding-agent`** and to follow Pi's extension model and philosophy.
+This repository contains Pi extensions intended to work well with `@mariozechner/pi-coding-agent` and to follow Pi's extension model and philosophy.
 
 The goal is to build small, composable, on-device extensions that integrate cleanly with Pi instead of forking or modifying Pi internals.
 
@@ -16,6 +16,7 @@ The goal is to build small, composable, on-device extensions that integrate clea
 ```text
 pi-extensions/
   AGENTS.md
+  pi-cli-extension-testing-requirements.md
   <extension-name>/
     AGENTS.md
     package.json
@@ -31,10 +32,10 @@ If a package uses `src/`, keep the Pi entrypoint explicit in `package.json` unde
 
 ## Primary Design Constraints
 
-- Build **Pi extensions first**, not Pi forks.
-- Prefer **TypeScript** modules loaded by Pi.
-- Keep extensions **small, explicit, and composable**.
-- Prefer **local/on-device workflows** and direct shell/tool integration.
+- Build Pi extensions first, not Pi forks.
+- Prefer TypeScript modules loaded by Pi.
+- Keep extensions small, explicit, and composable.
+- Prefer local/on-device workflows and direct shell/tool integration.
 - Do not introduce hidden background processes unless the extension explicitly exists for that purpose.
 - Do not recreate large built-in product features unless the user asks for them.
 - Favor mechanisms Pi already supports well: tools, commands, event hooks, widgets, status lines, confirmation flows, and package manifests.
@@ -87,9 +88,9 @@ If the extension uses `src/index.ts`, point `pi.extensions` there explicitly.
 
 ## Repository-Wide Coding Rules
 
-- Use **TypeScript**.
-- Export a **default function** that receives `ExtensionAPI`.
-- Use **top-level imports** only.
+- Use TypeScript.
+- Export a default function that receives `ExtensionAPI`.
+- Use top-level imports only.
 - Do not use dynamic imports unless there is a strong runtime requirement.
 - Avoid `any`; keep types explicit.
 - Use schemas for tool parameters.
@@ -179,6 +180,74 @@ If the extension is meant for auto-discovery, document placement under one of:
 - `.pi/extensions/`
 - a package installed via `pi install`
 
+### Repository testing standard
+
+For extensions that register tools, wrap external CLIs, create child sessions, or perform non-trivial orchestration, follow `./pi-cli-extension-testing-requirements.md` as the repository testing standard.
+
+That document is the source of truth for:
+
+- required test layers
+- veracity and anti-fabrication testing
+- telemetry expectations
+- mock vs live evidence boundaries
+- cleanup, isolation, and determinism requirements
+- what good coverage and good claims about coverage look like
+
+### Automated testing expectations for non-trivial extensions
+
+Manual validation is required but is not sufficient for extensions that:
+
+- register tools
+- wrap external CLIs or services
+- create child sessions or subagents
+- enforce allowlists, denylists, permissions, or confirmation gates
+- perform non-trivial orchestration, policy enforcement, or tool mediation
+
+Those extensions should normally include an automated test suite with layered coverage:
+
+1. unit tests for pure logic, policy boundaries, and helpers
+2. extension-level tests for registration, schemas, and tool behavior
+3. integration tests for Pi session/tool/resource-loader wiring
+4. veracity tests proving the agent actually used the tool and did not fabricate results
+
+### CLI-backed extension testing rules
+
+For extensions that expose CLI-backed tools or mediate access to external systems, tests should normally cover:
+
+- allowed vs blocked operations
+- explicit allowlist and denylist behavior
+- safety boundaries and confirmation gates
+- honest error reporting
+- cleanup and cancellation
+- tool configuration passed into child or wrapper contexts
+- telemetry for actual tool usage
+- positive and negative trap tests when tool-use honesty matters
+- semantic dependence on tool-only information where feasible
+
+Prefer structured tool interfaces over broad shell passthrough, and test accordingly.
+
+### Coverage boundaries and non-overclaiming
+
+Every test plan and test documentation file must explicitly state:
+
+- what the tests prove
+- what they do not prove
+- whether parent telemetry, child telemetry, both, or neither are directly observed
+- whether the tests validate a full live execution chain or only a controlled or mock path
+
+Do not overclaim live coverage.
+
+Real-LLM tests are valuable and encouraged where they add unique confidence, but they must not be described as full end-to-end proof unless the full chain is directly observed.
+
+### Test maintenance expectations
+
+When behavior, tool surfaces, policy boundaries, safety posture, or integration shape changes, update:
+
+- automated tests
+- test utilities and fixtures as needed
+- test documentation describing scope and evidence boundaries
+- the extension README if user-visible behavior changes
+
 ## Implementation Preferences
 
 Prefer:
@@ -191,139 +260,33 @@ Prefer:
 
 Avoid unless requested:
 
-- opaque autonomous loops
-- large framework abstractions
-- hidden network dependencies
-- silent mutation of user files outside the stated scope
-- tightly coupling one extension to another
+- hidden daemons
+- broad shell passthrough as the primary interface
+- large mutable singleton registries
+- opaque side effects that are hard to audit
 
 ## When Working on a Request
 
-When asked to add or modify an extension:
+When asked to create or modify an extension in this repo:
 
-1. identify the target extension subfolder
-2. read that extension's `AGENTS.md`, `README.md`, and `package.json` first, if present
-3. preserve the extension's public behavior unless explicitly asked to change it
-4. keep changes scoped to the target extension
-5. update its README if behavior, commands, setup, or security posture changed
-6. describe how to run or load it in Pi
+1. inspect the target extension folder first
+2. preserve the existing package shape unless a change is needed
+3. use Pi-native extension points instead of patching Pi internals
+4. update the extension README when behavior changes
+5. add or update automated tests and test documentation when behavior, tool surfaces, policy boundaries, or safety posture change
+6. document required external dependencies or CLIs
+7. provide a concrete manual validation path
 
-## Deliverable Expectations
+## Review Checklist
 
-Unless explicitly told otherwise, produce:
+Before considering work complete, check:
 
-- the extension code
-- any required `package.json` updates
-- a `README.md`
-- brief manual test instructions
-
-## Decision Rule
-
-When several implementation options exist, choose the one that:
-
-1. fits Pi's extension API cleanly
-2. is easiest to inspect and maintain
-3. keeps execution local and observable
-4. avoids modifying Pi core behavior unless necessary
-5. is simplest for on-device use
-
-## GitHub Project
-
-- Default project: `@pi-extensions-project`
-- Project number: `2`
-- Owner: `athurdekoos`
-
-## Test Generation
-
-Goal:
-Protect real user and business behavior with minimal maintenance burden.
-
-Rules:
-
-- Test behavior, not implementation details.
-- Prefer a small number of high-value tests.
-- Default to 3 tests unless more are clearly justified.
-- Cover the main success path, one important edge case, and one meaningful failure path.
-- Prefer integration tests when they give better signal.
-- Avoid brittle mocks unless necessary.
-- Do not test framework defaults.
-- Avoid snapshots unless there is no better assertion.
-- Reuse existing test patterns in the repo.
-- If code is hard to test cleanly, propose a small refactor instead of writing brittle tests.
-
-Before writing tests:
-
-1. summarize the behavior to protect
-2. rank behaviors by regression risk
-3. propose the minimal useful test set
-4. state assumptions
-
-After writing tests:
-
-- explain what is covered
-- explain what is intentionally not covered
-- call out brittleness or tradeoffs
-
-## Definition of Done
-
-A change is done when:
-
-- behavior matches the request
-- relevant tests pass
-- new tests protect the intended behavior
-- no obvious dead code or placeholder comments remain
-- the final summary explains what changed and any risks left
-
-## Change Policy
-
-- Prefer the smallest change that solves the problem.
-- Do not rename or move files unless necessary.
-- Do not introduce new dependencies unless justified.
-- Preserve public interfaces unless the task requires changing them.
-- Do not make schema or migration changes unless explicitly asked.
-- If a larger refactor would help, propose it separately before doing it.
-
-## Communication
-
-Before coding:
-
-- summarize the problem
-- state assumptions
-- propose the minimal plan
-
-After coding:
-
-- summarize what changed
-- list tests run
-- note anything not covered
-- call out risks or follow-up work
-
-## Conventions
-
-- Use existing naming conventions.
-- Keep functions small and direct.
-- Prefer explicit code over clever abstractions.
-- Add comments only when they explain non-obvious intent.
-- Do not leave TODOs unless requested.
-
-## Boundaries
-
-- Do not modify CI, deployment, or secrets-related files unless explicitly asked.
-- Do not change lockfiles unless dependency changes are required.
-
-## Git Rules
-
-- Only commit files changed in this session.
-- Always use `git add <specific-file-paths>`.
-- Never use `git add .` or `git add -A`.
-- Before committing, run `git status` and verify only intended files are staged.
-- Never use `git reset --hard`, `git checkout .`, `git clean -fd`, `git stash`, or `git commit --no-verify`.
-- If rebase conflicts occur in files not modified for the task, stop and ask.
-
-## Style
-
-- Keep answers short and concise.
-- No emojis in commits, code, or technical prose.
-- No fluff or filler text.
-- Technical prose only.
-- Comments should explain **why**, not **what**.
+- package manifest and Pi entrypoint are correct
+- imports resolve logically
+- tools and commands have narrow schemas and clear descriptions
+- destructive or high-risk actions have confirmation or policy gating
+- unsafe shell interpolation is avoided
+- README is updated
+- automated tests and test documentation are updated when required
+- claims about coverage match the actual evidence gathered
+- a manual validation path is documented
