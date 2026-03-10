@@ -1,6 +1,6 @@
 # pi-google-adk
 
-A Pi extension for creating, importing, discovering, resolving, and running Python-first Google ADK (Agent Development Kit) projects locally.
+A Pi extension for creating, importing, discovering, resolving, and running Python-first [Google ADK](https://google.github.io/adk-docs/) (Agent Development Kit) projects locally.
 
 Registers six LLM-callable tools:
 
