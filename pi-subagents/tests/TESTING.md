@@ -1,6 +1,6 @@
 # pi-subagents Test Suite
 
-6-layer test suite for the `pi-subagents` extension.
+7-layer test suite for the `pi-subagents` extension.
 
 ## Running
 
@@ -55,6 +55,7 @@ Proves actual tool use vs bluffing through hidden canary/nonce patterns.
 |---|---|
 | `trap-positive.test.ts` | Tool was called, result contains exact canary from child, derived canary works, decoy vs real canary distinguished, multiple runs with fresh nonces each produce unique results |
 | `trap-negative.test.ts` | Tool absent/blocked/failed: no canary fabricated, error reported honestly, decoy in task not echoed as answer, empty child output reported truthfully |
+| `safe-tool-traps.test.ts` | Safe custom tool allowlist enforcement: approved tool canary flows through, unapproved excluded, mixed/multi-tool isolation, anti-fabrication with decoys, tool failure reported honestly, unknown tool not resolved |
 
 ### 5. Smoke Tests (`tests/smoke/`)
 
@@ -117,7 +118,56 @@ A self-check guard in each smoke test file verifies at module load time that no 
 - Without the tool, the answer cannot be correct
 - Derived canary results make accidental pass impossible
 
-### 6. Parallel Subagent Tests
+### 6. Safe Custom Tool Veracity Tests
+
+Tests that prove safe custom tool enforcement end-to-end through the `delegate_to_subagent` flow using hidden canary nonces.
+
+#### Mock-level (`tests/veracity/safe-tool-traps.test.ts`)
+
+| Scenario | Tests | What It Protects |
+|---|---|---|
+| 1. Approved tool positive trap | 2 | Canary flows from registered safe tool through child to parent result; derived canary present, raw nonce absent |
+| 2. Unapproved tool negative trap | 2 | Registered but unallowed tool excluded from customTools; no canary in result; omitted allowlist yields no custom tools |
+| 3. Mixed approved/blocked | 1 | Approved tool canary present, unapproved absent; config and invocation telemetry both correct |
+| 4. Anti-fabrication with decoy | 1 | Real canary from tool used, decoy planted in task rejected; exactly one session created |
+| 5. Multi-tool canary isolation | 2 | Allowed tools produce canaries, skipped tool does not; telemetry matches; each canary unique and derived |
+| 6. Allowlisted tool fails honestly | 2 | Error reported honestly, no canary fabricated; invocation attempted but failed; child session crash surfaces error in parent |
+| 7. Unknown safe tool | 3 | Unknown tool not resolved, customTools empty; wrong-name lookup fails; mixed known/unknown resolves only known |
+
+Telemetry is asserted at two independent levels:
+- **Configuration telemetry**: which tools were passed to `createAgentSession` via `customTools`
+- **Invocation telemetry**: which `toolCall` blocks appear in mock session messages (simulated child behavior)
+
+Both levels are asserted in mixed (scenario 3) and multi-tool (scenario 5) scenarios, ensuring that the final output depends on actual invocation results, not merely on configuration presence.
+
+#### Real-LLM (`tests/llm/safe-tool-veracity.test.ts`)
+
+| Scenario | Tests | What It Protects |
+|---|---|---|
+| Safe tool positive | 2 | Model calls safe tool and includes SHA-256-derived canary; decoy in prompt rejected in favor of real tool result |
+| Safe tool negative | 2 | Tool absent: canary not fabricated, model reports inability; tool throws: error reported honestly, canary absent |
+
+These tests create child-like sessions (noExtensions, readOnlyTools, custom tool) that mirror what `delegate_to_subagent` constructs. They verify live model behavior with safe tools through event telemetry and message-level telemetry.
+
+#### Scope: mock vs live
+
+Most scenarios (1-7) use mocked child sessions for deterministic coverage. They prove:
+- Policy and configuration enforcement (correct tools wired, incorrect tools excluded)
+- Anti-fabrication behavior under controlled conditions (canary isolation, decoy rejection, honest failure)
+- Telemetry correctness at the mock boundary
+
+The mock scenarios do **not** prove that a live model will behave correctly. They prove that the extension code correctly resolves, wires, and propagates safe tools.
+
+The real-LLM scenarios prove that a real model will:
+- Call an available safe tool and include its output
+- Not fabricate output when the tool is absent
+- Report errors honestly when the tool throws
+
+The real-LLM scenarios do **not** test the full parent→child delegation flow (which would require two model calls). They test the child session directly, which is the session that `delegate_to_subagent` constructs.
+
+Both layers are needed: mocks for exhaustive edge coverage, LLM for behavioral confidence.
+
+### 7. Parallel Subagent Tests
 
 Tests for concurrent and sequential multi-child execution, isolation, and honest concurrency classification.
 
@@ -175,6 +225,7 @@ End-to-end tests that run against a live Anthropic model (claude-haiku-4-5).
 | File | Protects |
 |---|---|
 | `real-veracity.test.ts` | 2 positive traps: agent calls tool and includes SHA-256-derived canary; agent uses real canary not decoy. 3 negative traps: tool absent yields honest failure; tool error reported honestly; decoy not confirmed as real. |
+| `safe-tool-veracity.test.ts` | 2 positive traps: model calls safe custom tool and includes derived canary; model uses tool value not decoy. 2 negative traps: safe tool absent yields honest failure; safe tool error reported honestly. |
 
 These tests use:
 - `createAgentSession()` with real auth and model
@@ -192,7 +243,7 @@ They auto-skip if no API key is available for the configured provider.
 | File | Purpose |
 |---|---|
 | `helpers/mock-extension-api.ts` | Fake `ExtensionAPI` that captures registrations; mock `ExtensionContext` |
-| `helpers/fake-tool.ts` | Factory for `ToolDefinition` objects used in allowlist tests |
+| `helpers/fake-tool.ts` | Factory for `ToolDefinition` objects: `makeFakeTool`, `makeFakeToolWithCanary`, `makeFakeToolThatThrows` |
 | `helpers/nonce.ts` | Deterministic canary generator with derive and decoy functions |
 | `helpers/parallel-harness.ts` | Timing recorder, concurrency classifier, isolation assertions, task-specific canary derivations |
 
@@ -215,4 +266,6 @@ All test-only exports are prefixed with `_` and documented as test-only in the s
 - **Real filesystem I/O by child tools**: Built-in tools (read, bash, etc.) are not exercised.
 - **Concurrent parent sessions**: Parallel subagent tests cover concurrent tool-level execution within a single parent; separate parent sessions are not tested.
 - **Model override resolution**: The `modelOverride` parameter path is not tested with a real `ModelRegistry`.
-- **globalThis safe tool registration**: The `__piSubagents_registerSafeTool` global is tested indirectly through `resolveAllowedCustomTools`.
+- **Full parent→child LLM flow with safe tools**: The LLM safe tool tests verify the child session directly; full delegate_to_subagent with two model calls is not tested.
+- **Safe tool execution correctness**: The tool's own logic is the tool author's responsibility; veracity tests only verify the plumbing.
+- **Safe tool resolution at scale**: Performance of the allowlist with large registries is not tested.
