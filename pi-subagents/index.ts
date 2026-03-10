@@ -18,6 +18,21 @@ import {
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Type, type Static } from "@sinclair/typebox";
 
+// Phase 4B: metadata-aware delegation advice
+import {
+  buildDelegationAdvice,
+  formatAdviceForOutput,
+  type DelegationAdvice,
+} from "./src/lib/adk-delegation-advice.js";
+
+// Phase 5B: delegation-time remediation UX
+import {
+  buildDelegationRemediation,
+  buildRemediationPromptText,
+  formatRemediationForOutput,
+  type DelegationRemediation,
+} from "./src/lib/adk-delegation-remediation.js";
+
 // ---------------------------------------------------------------------------
 // Recursion guard (secondary boundary)
 //
@@ -731,6 +746,73 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
         Array.from(allowedSet)
       );
 
+      // -----------------------------------------------------------------
+      // Phase 4B: Metadata-aware delegation advice
+      // -----------------------------------------------------------------
+      let delegationAdvice: DelegationAdvice | null = null;
+
+      if (resolvedAdkAgent) {
+        delegationAdvice = buildDelegationAdvice(
+          ctx.cwd,
+          resolvedAdkAgent.project_path,
+          safeToolRegistry,
+          params.safeCustomTools
+        );
+      }
+
+      // -----------------------------------------------------------------
+      // Phase 5B: Delegation-time remediation UX
+      // -----------------------------------------------------------------
+      let delegationRemediation: DelegationRemediation | null = null;
+
+      if (delegationAdvice) {
+        delegationRemediation = buildDelegationRemediation(
+          delegationAdvice,
+          params.safeCustomTools,
+        );
+
+        // Light interactive confirm/warn when UI is available and
+        // there are meaningful mismatches worth surfacing.
+        if (
+          delegationRemediation.needs_attention &&
+          delegationRemediation.ui_prompt_recommended
+        ) {
+          const uiCtx = ctx as {
+            ui?: { confirm?: (title: string, message: string) => Promise<boolean> };
+            hasUI?: boolean;
+          };
+          const hasConfirmUI = !!(uiCtx.hasUI && uiCtx.ui && typeof uiCtx.ui.confirm === "function");
+
+          if (hasConfirmUI) {
+            const { title, body } = buildRemediationPromptText(delegationRemediation);
+            const confirmed = await uiCtx.ui!.confirm!(title, body);
+            delegationRemediation.ui_prompt_shown = true;
+            delegationRemediation.user_chose_to_continue = confirmed;
+
+            if (!confirmed) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text:
+                      "Delegation cancelled by user after remediation warning.\n\n" +
+                      delegationRemediation.concise_user_message,
+                  },
+                ],
+                details: {
+                  childMessages: 0,
+                  ...(delegationAdvice ? { adk_delegation_advice: delegationAdvice } : {}),
+                  adk_delegation_remediation: delegationRemediation,
+                },
+              };
+            }
+          } else {
+            // Non-interactive: structured remediation guidance only, no prompt.
+            delegationRemediation.ui_prompt_shown = false;
+          }
+        }
+      }
+
       // Build child system prompt (ADK-augmented if applicable).
       const childSystemPrompt = resolvedAdkAgent
         ? buildAdkChildSystemPrompt(params, resolvedAdkAgent)
@@ -833,6 +915,16 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
 
         const totalMessages = messages.length;
 
+        // Phase 4B: include advisory in output when present
+        const advisoryBlock = delegationAdvice
+          ? "\n\n" + formatAdviceForOutput(delegationAdvice)
+          : "";
+
+        // Phase 5B: include remediation guidance in output when present
+        const remediationBlock = delegationRemediation
+          ? "\n\n" + formatRemediationForOutput(delegationRemediation)
+          : "";
+
         return {
           content: [
             {
@@ -843,10 +935,16 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
                 finalText || "(No output from subagent)",
                 "",
                 `--- End Subagent Result (${totalMessages} messages exchanged) ---`,
+                advisoryBlock,
+                remediationBlock,
               ].join("\n"),
             },
           ],
-          details: { childMessages: totalMessages },
+          details: {
+            childMessages: totalMessages,
+            ...(delegationAdvice ? { adk_delegation_advice: delegationAdvice } : {}),
+            ...(delegationRemediation ? { adk_delegation_remediation: delegationRemediation } : {}),
+          },
         };
       } catch (err: unknown) {
         const errorMessage =

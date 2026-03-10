@@ -1,5 +1,81 @@
 # Changelog
 
+## 0.7.0 — Release cleanup
+
+### Improvements
+
+- Documentation alignment across all packages — test counts, tool counts, terminology, examples
+- Added current workflow guide to top-level README
+- Added contributor architecture notes
+- Updated AGENTS.md for both packages with accurate file listings and test counts
+- Removed stale pre-redesign wording and counts
+- Added release smoke-test notes
+
+## 0.6.0 — Phase 5B: Delegation-time remediation UX
+
+### New in pi-subagents
+
+- **Delegation remediation guidance** — when tool mismatches are detected, produces actionable remediation: exact `safeCustomTools` suggestions, missing-extension next steps, concise user messaging
+- **Interactive confirm/warn** — lightweight TUI dialog when meaningful mismatches are detected (not shown on happy-path delegations)
+- **Structured remediation actions** — `add_safe_custom_tools`, `load_missing_extension`, `continue_with_limited_tools`, `review_project_tool_plan`
+- **Non-interactive structured guidance** — remediation returned in result for SDK/CI use without prompts
+- **User authority preserved** — user-provided `safeCustomTools` are never mutated; all suggestions are advisory
+
+### Tests
+
+- 34 new tests for remediation model, user authority, missing-extension guidance, output formatting, prompt text, JSON serializability, edge cases
+
+## 0.5.0 — Phase 5A: Metadata schema hardening
+
+### New shared package
+
+- **`shared/adk-metadata-schema/`** — canonical metadata contract with types, validation, normalization, and disk reader
+- Explicit `schema_version` field (current: `"1"`) with forward/backward compatibility
+- Unknown additive fields preserved in `_unknown_fields`, never stripped
+- Structured `ValidationResult` with `ok`/`warnings`/`errors`, never throws
+
+### Changes
+
+- Both pi-google-adk and pi-subagents now import types from the shared contract
+- Eliminated mirrored type definitions that were a maintenance seam
+- 37 tests in the shared package; cross-package consistency tests in both consumers
+
+## 0.4.1 — Phase 4B: Metadata-aware delegation advice
+
+### New in pi-subagents
+
+- **Delegation advice** — when delegating to an ADK agent, reads `.pi-adk-metadata.json` and produces an advisory summary
+- Surfaces recommended vs effective safe custom tools, detected vs missing extension tools, Pi Mono profile, ADK-native tool patterns
+- Advisory-first: never auto-grants tools or blocks delegation; warnings preferred over refusal
+- Graceful degradation: no metadata → no advice; malformed → safe defaults
+
+### Tests
+
+- Tests for metadata reading, recommendation logic, extension detection, summary formatting, non-regression
+
+## 0.4.0 — Phase 4A: Sample drift detection
+
+### New tools
+
+- **`check_adk_sample_drift`** — detect whether an imported official sample has drifted relative to upstream. Reports `up_to_date`, `upstream_updated`, `local_modified`, or `diverged`. Does not auto-update.
+
+### New libraries
+
+- **`sample-drift.ts`** — drift classification logic using three-way tree hash comparison
+- **`tree-hash.ts`** — deterministic directory tree hashing with configurable ignore patterns
+
+### Features
+
+- Interactive project picker when no target specified and UI is available
+- Additive drift tracking metadata in `.pi-adk-metadata.json` (`tracking` section)
+- Verbose mode with per-file change detail
+- Supports graceful fallback when commit hash is missing from provenance
+
+### Tests
+
+- 360 automated tests (up from 150)
+- Added tree hash, sample drift, drift behavior, creation metadata, project detect tests
+
 ## 0.3.0 — Phase 3: UX hardening
 
 ### Improvements

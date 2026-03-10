@@ -139,17 +139,17 @@ describe("create_adk_agent execution", () => {
     const origCwd = process.cwd();
     try {
       process.chdir(workDir);
-      // First create
+      // First create (use legacy mode for deterministic test without adk CLI dependency)
       await createTool.execute(
         "test-ow-1",
-        { name: "ow_agent", path: "./ow_proj" },
+        { name: "ow_agent", mode: "legacy_basic", path: "./ow_proj" },
         undefined, undefined,
         createMockExtensionContext({ cwd: workDir })
       );
       // Second create without overwrite
       const result = await createTool.execute(
         "test-ow-2",
-        { name: "ow_agent", path: "./ow_proj" },
+        { name: "ow_agent", mode: "legacy_basic", path: "./ow_proj" },
         undefined, undefined,
         createMockExtensionContext({ cwd: workDir })
       );

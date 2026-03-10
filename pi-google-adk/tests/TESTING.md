@@ -21,7 +21,7 @@ Tests that register the extension via mock API and exercise tool behavior.
 
 | File | Behavior protected |
 |------|-------------------|
-| `registration.test.ts` | Two tools registered, correct names/labels/descriptions, schema required fields |
+| `registration.test.ts` | All 6 tools registered, correct names/labels/descriptions, schema required fields |
 | `tool-behavior.test.ts` | create_adk_agent happy path (all 3 templates), invalid name rejection, path traversal rejection, overwrite protection; add_adk_capability path traversal and non-project rejection |
 
 ### Layer 3 — Integration tests (`tests/integration/`)

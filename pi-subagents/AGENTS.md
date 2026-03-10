@@ -148,7 +148,7 @@ Document registered tools, commands, hooks, and widgets in `README.md`.
 
 ## Testing Rules
 
-The test suite has 8 layers (187 tests). See `tests/TESTING.md` for full documentation.
+The test suite has 8 layers (268 tests). See `tests/TESTING.md` for full documentation.
 
 ### Running
 
@@ -163,10 +163,10 @@ npm run test:smoke    # extension discovery/loading smoke tests
 
 | Layer | Dir | Tests | Speed |
 |---|---|---|---|
-| Unit | `tests/unit/` | 55 | fast |
+| Unit | `tests/unit/` | 174 | fast |
 | Extension | `tests/extension/` | 18 | fast |
 | Integration | `tests/integration/` | 21 | fast |
-| Veracity (mock) | `tests/veracity/` | 23 | fast |
+| Veracity (mock) | `tests/veracity/` | 36 | fast |
 | Smoke | `tests/smoke/` | 19 | fast |
 | Veracity (LLM) | `tests/llm/` | 9 | slow (~15s, requires API key) |
 
@@ -216,7 +216,7 @@ pi -e ./index.ts
 ## Definition of Done
 A change in this extension is done when:
 - behavior matches the request
-- `npm run test:all` passes (187 tests)
+- `npm run test:all` passes (268 tests)
 - new tests protect intended behavior
 - documentation is updated if needed
 - no obvious dead code or placeholder comments remain

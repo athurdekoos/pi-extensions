@@ -40,10 +40,10 @@ afterEach(() => {
 });
 
 describe("extension registration", () => {
-  it("registers exactly five tools", () => {
+  it("registers exactly six tools", () => {
     const { api, registeredTools } = createMockExtensionAPI();
     piGoogleAdkExtension(api);
-    expect(registeredTools).toHaveLength(5);
+    expect(registeredTools).toHaveLength(6);
   });
 
   it("registers create_adk_agent tool", () => {
@@ -107,12 +107,12 @@ describe("extension registration", () => {
     expect(registered).toContain("resolve_adk_agent");
   });
 
-  it("create_adk_agent has required 'name' parameter in schema", () => {
+  it("create_adk_agent has 'name' parameter in schema (optional for wizard mode)", () => {
     const { api, getTool } = createMockExtensionAPI();
     piGoogleAdkExtension(api);
     const tool = getTool("create_adk_agent");
     const schema = tool!.parameters as { required?: string[]; properties?: Record<string, unknown> };
-    expect(schema.required).toContain("name");
+    // name is optional (for interactive wizard) — but must exist in properties
     expect(schema.properties).toHaveProperty("name");
   });
 

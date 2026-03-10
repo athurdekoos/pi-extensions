@@ -14,10 +14,10 @@ This file defines **local rules for this extension only**. If there is a conflic
 
 ## Extension Goal
 
-- Primary use case: scaffold, discover, resolve, and run Python-first Google ADK agent projects locally.
-- Main user workflow: create ADK agents via `create_adk_agent`, add capabilities, discover with `list_adk_agents`, execute with `run_adk_agent`. Cross-extension: pi-subagents delegates to named ADK agents via `resolve_adk_agent`.
-- Key Pi integration points: `registerTool` for 5 tools; `registerSafeToolForSubagents` for cross-extension integration via globalThis registry.
-- Required external tools or services: Python 3.10+, `google-adk` pip package, and a Google API key (all for the generated projects and `run_adk_agent`, not for the extension itself).
+- Primary use case: create, import, discover, resolve, and run Python-first Google ADK agent projects locally. Detect drift on imported official samples.
+- Main user workflow: create ADK agents via `create_adk_agent` (native CLI, official sample import, or legacy template), add capabilities, discover with `list_adk_agents`, execute with `run_adk_agent`, check drift with `check_adk_sample_drift`. Cross-extension: pi-subagents delegates to named ADK agents via `resolve_adk_agent`.
+- Key Pi integration points: `registerTool` for 6 tools; `registerSafeToolForSubagents` for cross-extension integration via globalThis registry.
+- Required external tools or services: Python 3.10+, `google-adk` pip package, and a Google API key (all for the generated projects and `run_adk_agent`, not for the extension itself). `git` for official sample import.
 - Main safety considerations: path traversal prevention, overwrite protection, subprocess timeout enforcement, no global config writes.
 
 ## Source of Truth
@@ -41,23 +41,35 @@ pi-google-adk/
   tsconfig.json
   vitest.config.ts
   src/
-    index.ts                    # extension entry: registers all 5 tools
+    index.ts                    # extension entry: registers all 6 tools
     lib/
+      adk-cli-detect.ts         # ADK CLI version/capability detection
       adk-discovery.ts          # agent discovery and name/path resolution
-      adk-runtime.ts            # ADK CLI execution, output parsing
       adk-docs-mcp.ts           # ADK docs MCP config generation
+      adk-native-create.ts      # native ADK CLI project creation
+      adk-runtime.ts            # ADK CLI execution, output parsing
+      creation-metadata.ts      # .pi-adk-metadata.json writing
       fs-safe.ts                # path safety utilities
       project-detect.ts         # ADK project detection
       safe-tool-registration.ts # load-order-resilient safe tool registry
+      sample-catalog.ts         # curated official sample catalog
+      sample-drift.ts           # drift detection logic
+      sample-import.ts          # git-based sample import
       scaffold-manifest.ts      # .adk-scaffold.json manifest handling
       temp-replay.ts            # temp replay file for adk run --replay
+      tool-detect.ts            # extension tool detection
+      tool-plan.ts              # tool plan model and builder
+      tool-summary.ts           # tool access summary formatting
+      tree-hash.ts              # deterministic tree hashing for drift
       validators.ts             # input validation
+      wizard.ts                 # interactive creation wizard
     tools/
-      create-adk-agent.ts       # scaffold new projects
+      create-adk-agent.ts       # create new projects (native, sample, legacy)
       add-adk-capability.ts     # add capabilities to existing projects
       run-adk-agent.ts          # execute ADK agents
       list-adk-agents.ts        # discover agents in workspace
       resolve-adk-agent.ts      # resolve name/path to specific agent
+      check-adk-sample-drift.ts # detect drift on imported samples
     templates/
       python-basic/files.ts
       python-mcp/files.ts
@@ -96,13 +108,19 @@ pi-google-adk/
 
 ## Cross-Extension Integration
 
-This extension integrates with pi-subagents through the globalThis safe tool registry:
+This extension integrates with pi-subagents through two mechanisms:
 
+**Safe tool registry (runtime):**
 - `run_adk_agent` and `resolve_adk_agent` are registered as safe tools via `registerSafeToolForSubagents()`
 - Load-order resilient: immediate registration if pi-subagents is loaded, otherwise queued in `__piSubagents_pendingSafeTools`
 - pi-subagents calls `resolve_adk_agent` via the safe tool registry — no direct import
 
-**Do not hard-import pi-subagents logic.** The integration must remain tool-mediated.
+**Shared metadata schema (development-time):**
+- Both packages import types and validation from `shared/adk-metadata-schema/`
+- pi-google-adk writes `.pi-adk-metadata.json`; pi-subagents reads it for delegation advice
+- The schema is a development-time contract, not runtime coupling
+
+**Do not hard-import pi-subagents logic.** The integration must remain tool-mediated at runtime.
 
 ## Tool and Command Rules
 For any tool or command added here:
@@ -123,7 +141,7 @@ Document registered tools, commands, hooks, and widgets in `README.md`.
 
 ## Testing Rules
 
-150 automated tests across unit, extension, integration, and veracity layers.
+360 automated tests across unit, extension, integration, and veracity layers.
 
 ### Running
 
@@ -136,11 +154,10 @@ npm run verify        # typecheck + verification suite
 
 | Layer | Tests | Speed |
 |---|---|---|
-| Unit | 108 | fast |
-| Extension | 16 | fast |
+| Unit | 295 | fast |
+| Extension | 51 | fast |
 | Integration | 8 | fast |
 | Veracity | 10 | fast |
-| Behavioral (run-adk-agent) | 6 | ~4s (CLI check) |
 
 ### When to add tests
 
@@ -149,16 +166,19 @@ npm run verify        # typecheck + verification suite
 - Any change to safe tool registration: update `safe-tool-registration.test.ts`
 - Any change to scaffolding templates: update `templates.test.ts`
 - Any change to tool registration: verify `registration.test.ts` passes
+- Any change to sample catalog/import/drift: update relevant test files
+- Any change to tool planning/summary: update `tool-plan.test.ts`, `tool-summary.test.ts`
+- Any change to metadata schema: update `metadata-schema-consistency.test.ts`
 
 ## Validation Checklist
 Before finishing work in this extension:
 1. verify package shape and imports
 2. verify the Pi entrypoint is correct
-3. verify all 5 tools register with correct metadata
+3. verify all 6 tools register with correct metadata
 4. verify no obvious unsafe shell interpolation or path handling bugs
 5. update `README.md` if behavior or setup changed
 6. update `CHANGELOG.md` for user-visible changes
-7. run `npm test` and verify all 150 tests pass
+7. run `npm test` and verify all 360 tests pass
 8. provide a concrete manual test path using Pi
 
 Preferred manual run path:
@@ -178,7 +198,7 @@ pi -e ./src/index.ts
 ## Definition of Done
 A change in this extension is done when:
 - behavior matches the request
-- `npm test` passes (150 tests)
+- `npm test` passes (360 tests)
 - new tests protect intended behavior
 - documentation is updated if needed
 - no obvious dead code or placeholder comments remain

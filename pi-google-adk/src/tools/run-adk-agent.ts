@@ -91,6 +91,8 @@ export function buildRunAdkAgentToolDef(): ToolDefinition {
           agent_name: validation.info.agentName,
           template: validation.info.template,
           final_output: "",
+          raw_stdout: "",
+          raw_stderr: "",
           stdout: "",
           stderr: "",
           exit_code: null,

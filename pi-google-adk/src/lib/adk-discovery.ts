@@ -13,7 +13,8 @@ import { readdirSync, statSync } from "node:fs";
 import { resolve, relative, basename } from "node:path";
 import { detectAdkProject, type ProjectInfo } from "./project-detect.js";
 import { readManifest, type ScaffoldManifest } from "./scaffold-manifest.js";
-import { safePath } from "./fs-safe.js";
+import { safePath, safeReadFile } from "./fs-safe.js";
+import { CREATION_METADATA_FILENAME, type SourceType, readAndValidateMetadata } from "./creation-metadata.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,10 +29,12 @@ export interface DiscoveredAgent {
   template: string | null;
   /** Capabilities list from manifest, if available. */
   capabilities: string[];
-  /** Display label: "name (template) — path". */
+  /** Display label: "name [source_type] — path". */
   label: string;
   /** Detection source: "manifest" | "heuristic". */
   source: "manifest" | "heuristic";
+  /** Source type from Pi metadata, if available. */
+  source_type?: SourceType;
 }
 
 export interface ResolveResult {
@@ -100,9 +103,10 @@ export function discoverAdkAgents(cwd: string): DiscoveredAgent[] {
       const capabilities = manifest?.capabilities ?? [];
       const source: "manifest" | "heuristic" = manifest ? "manifest" : "heuristic";
 
-      const templateLabel = template && template !== "unknown" ? ` (${template})` : "";
-      const capsLabel = capabilities.length > 0 ? ` [${capabilities.join(", ")}]` : "";
-      const label = `${name}${templateLabel}${capsLabel} — ${relPath}`;
+      // Read source_type from Pi metadata if available
+      const sourceType = readSourceType(absEntry);
+
+      const label = buildAgentLabel(name, template, sourceType, capabilities, relPath);
 
       agents.push({
         name,
@@ -111,6 +115,7 @@ export function discoverAdkAgents(cwd: string): DiscoveredAgent[] {
         capabilities,
         label,
         source,
+        source_type: sourceType,
       });
     }
   }
@@ -184,16 +189,16 @@ function resolveByPath(
   const template = manifest?.template ?? info.template ?? null;
   const capabilities = manifest?.capabilities ?? [];
   const source: "manifest" | "heuristic" = manifest ? "manifest" : "heuristic";
-  const templateLabel = template && template !== "unknown" ? ` (${template})` : "";
-  const capsLabel = capabilities.length > 0 ? ` [${capabilities.join(", ")}]` : "";
+  const sourceType = readSourceType(absPath);
 
   const agent: DiscoveredAgent = {
     name,
     project_path: relPath,
     template,
     capabilities,
-    label: `${name}${templateLabel}${capsLabel} — ${relPath}`,
+    label: buildAgentLabel(name, template, sourceType, capabilities, relPath),
     source,
+    source_type: sourceType,
   };
 
   return { status: "found", agent, available };
@@ -237,4 +242,44 @@ function resolveByName(
 
   // No match
   return { status: "not_found", available };
+}
+
+// ---------------------------------------------------------------------------
+// Metadata-aware helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Read source_type from .pi-adk-metadata.json if present.
+ *
+ * Phase 5A: Uses shared schema validation for consistent interpretation.
+ */
+function readSourceType(projectRoot: string): SourceType | undefined {
+  const validation = readAndValidateMetadata(projectRoot);
+  if (!validation.ok || !validation.metadata) return undefined;
+  return validation.metadata.source_type;
+}
+
+/**
+ * Build a display label that distinguishes source types.
+ *
+ * Examples:
+ *   researcher [native_app] — ./agents/researcher
+ *   support-bot [native_config] — ./agents/support-bot
+ *   academic-research [official_sample] — ./agents/academic-research
+ *   legacy-agent (basic) [mcp_toolset] — ./agents/legacy-agent
+ */
+function buildAgentLabel(
+  name: string,
+  template: string | null,
+  sourceType: SourceType | undefined,
+  capabilities: string[],
+  relPath: string
+): string {
+  const typeTag = sourceType ? ` [${sourceType}]` : "";
+  const templateLabel =
+    template && template !== "unknown" && template !== sourceType
+      ? ` (${template})`
+      : "";
+  const capsLabel = capabilities.length > 0 ? ` [${capabilities.join(", ")}]` : "";
+  return `${name}${typeTag}${templateLabel}${capsLabel} — ${relPath}`;
 }

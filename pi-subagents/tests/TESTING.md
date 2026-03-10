@@ -1,6 +1,6 @@
 # pi-subagents Test Suite
 
-8-layer test suite (187 tests) for the `pi-subagents` extension.
+8-layer test suite (268 tests) for the `pi-subagents` extension.
 
 ## Running
 

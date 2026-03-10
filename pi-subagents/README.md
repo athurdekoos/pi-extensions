@@ -148,6 +148,104 @@ if (register) {
 - **Deny-by-default**: unlisted tools are unavailable to the child
 - **Non-mutating**: the caller's `safeCustomTools` array is never modified
 
+## Metadata-aware delegation advice (Phase 4B)
+
+When delegating to an ADK-backed agent, pi-subagents inspects the target project's `.pi-adk-metadata.json` and produces an advisory summary. This connects the tool-plan metadata from Phase 3 into the actual delegation workflow.
+
+### What it surfaces
+
+- **Recommended safe custom tools** from the stored tool plan
+- **Currently detected extension tools** in the safe tool registry
+- **Missing expected extension tools** — tools the project expects but are not currently available
+- **Pi Mono profile and built-in tools** from the tool plan
+- **ADK-native tool patterns** from the tool plan
+- **Warnings** about mismatches (missing tools, unregistered recommendations)
+
+### Advisory behavior
+
+All advice is **advisory, not automatic**:
+
+- If the user explicitly provided `safeCustomTools`, those are authoritative. Recommendations appear only in warnings/notes.
+- If no explicit `safeCustomTools` are provided, the system does NOT silently inject recommended tools. Only `run_adk_agent` is auto-added (existing Phase 2 behavior).
+- Delegation is never blocked just because expected extension tools are missing. Warnings are preferred over refusal.
+- The advisory is included in the tool result's `details.adk_delegation_advice` field and appended to the output text.
+
+### Key distinctions
+
+| Concept | Meaning |
+|---|---|
+| `recommended_safe_custom_tools` | What the tool plan says should be allowlisted for delegation |
+| `effective_safe_custom_tools` | What will actually be used (user-provided takes precedence) |
+| `suggested_safe_custom_tools` | The full recommended list the user could pass next time |
+| `omitted_recommended_safe_custom_tools` | Recommended tools not in the effective set — what the user should add |
+| `missing_expected_extension_tools` | Expected by metadata but not currently in the safe tool registry |
+
+### Delegation remediation guidance (Phase 5B)
+
+When delegation advice detects mismatches (missing tools, omitted recommendations), the system now produces **actionable remediation guidance** in addition to the advisory summary.
+
+#### What it surfaces
+
+- **Exact safeCustomTools suggestions** — the full recommended list the user could pass next time
+- **Omitted recommended tools** — which recommended tools are missing from the current delegation
+- **Missing extension tool guidance** — which extensions need to be loaded, with next-step instructions
+- **Remediation actions** — structured actions like `add_safe_custom_tools`, `load_missing_extension`, `continue_with_limited_tools`, `review_project_tool_plan`
+- **Concise user message** — a short human-readable summary of what to do
+- **Attention flags** — `needs_attention`, `can_continue_safely`, `ui_prompt_recommended`
+
+#### Interactive confirm/warn
+
+When running in a UI context (TUI) and meaningful mismatches are detected, a lightweight confirm dialog may appear:
+
+- Summarizes the mismatch (omitted tools, missing extensions)
+- Lets the user continue or cancel
+- Brief — no wizard, similar in style to `/clear` confirmation
+- Only shown when there are real issues worth surfacing
+- Not shown on happy-path delegations with no mismatches
+
+When no UI is available (SDK, CI, headless):
+
+- No prompt is attempted
+- Structured remediation guidance is returned in the result
+- Delegation proceeds unless an existing hard requirement blocks
+
+#### Result enrichment
+
+Delegation results now include `details.adk_delegation_remediation` alongside the existing `details.adk_delegation_advice`:
+
+```typescript
+{
+  suggested_safe_custom_tools: string[];
+  effective_safe_custom_tools: string[];
+  omitted_recommended_safe_custom_tools: string[];
+  missing_expected_extension_tools: string[];
+  remediation_actions: Array<{
+    kind: string;      // "add_safe_custom_tools" | "load_missing_extension" | etc.
+    description: string;
+    tools?: string[];
+  }>;
+  concise_user_message: string;
+  can_continue_safely: boolean;
+  needs_attention: boolean;
+  ui_prompt_recommended: boolean;
+  ui_prompt_shown?: boolean;
+  user_chose_to_continue?: boolean;
+}
+```
+
+#### User authority preserved
+
+- User-provided `safeCustomTools` are never mutated or overwritten
+- Remediation is advisory — suggestions, not automatic grants
+- The user always has final control over what tools are exposed
+
+### Graceful degradation
+
+- No metadata → no advisory (null)
+- Metadata without tool_plan → advisory with `has_tool_plan: false` and informational note
+- Malformed metadata → no advisory (null)
+- Non-ADK delegation → no advisory (advisory only applies when `agent` param is used)
+
 ## Recursion prevention
 
 The child must never be able to call another subagent. This is enforced with two layers:
@@ -216,7 +314,7 @@ A module-scoped depth counter and a `WeakSet` of active child signals provide de
 
 ## Testing
 
-187 automated tests across 8 layers. See [tests/TESTING.md](tests/TESTING.md) for full details.
+268 automated tests across 8 layers. See [tests/TESTING.md](tests/TESTING.md) for full details.
 
 ### Running tests
 
@@ -235,12 +333,35 @@ npm run test:smoke    # extension discovery/loading smoke tests
 
 | Layer | Location | Count | What it protects |
 |---|---|---|---|
-| Unit | `tests/unit/` | 55 | Child prompt construction, tool allowlist resolution, recursion guard logic, parameter schema, ADK resolution, pending safe tools |
+| Unit | `tests/unit/` | 174 | Child prompt, tool allowlist, recursion guard, schema, ADK resolution, pending safe tools, delegation advice, delegation remediation, metadata schema consistency |
 | Extension | `tests/extension/` | 18 | Tool registration in parent/child mode, execute behavior with mocked sessions |
 | Integration | `tests/integration/` | 21 | Real SDK wiring: DefaultResourceLoader, SessionManager, built-in tool sets, parallel execution |
-| Veracity (mock) | `tests/veracity/` | 23 | Canary-based proof that tool results flow through correctly and are not fabricated |
+| Veracity (mock) | `tests/veracity/` | 36 | Canary-based proof that tool results flow through correctly and are not fabricated |
 | Smoke | `tests/smoke/` | 19 | Real pi loader discovers and loads the extension; post-load invocation |
 | Safe tool veracity | `tests/llm/` | 9 | Real-LLM veracity with safe custom tools and derived canaries |
+
+### Phase 4B test additions
+
+| Test | What it protects |
+|---|---|
+| Metadata reading | No metadata → null; missing/malformed → safe; tool_plan absent → has_tool_plan false |
+| Recommendation logic | recommended_safe_custom_tools read correctly; user-provided is authoritative; dedupe; no mutation |
+| Extension detection comparison | Expected present → no warning; expected missing → warning; partial detection handled |
+| Delegation summary | Includes project expectations, availability, recommended tools, advisory caveat |
+| Non-regression | Null for non-ADK; null for missing metadata; no crash on empty/null tool_plan; JSON-serializable |
+
+### Phase 5B test additions (34 tests)
+
+| Test | What it protects |
+|---|---|
+| Remediation model | suggested/omitted/effective computed correctly; actions appropriate; flags correct |
+| User authority | User arrays not mutated; suggested is a copy; effective reflects user input |
+| Missing-extension guidance | Missing tools → load_missing_extension action; all present → no false action |
+| Concise user message | Clean on happy path; mentions omitted/missing tools; honest about no-tools case |
+| Output formatting | Empty when no attention; structured text when mismatches; includes suggested list |
+| Prompt text | Title and body produced; mentions omitted tools; mentions missing extensions |
+| JSON serializability | Roundtrip preserves structure |
+| Edge cases | No tool_plan → safe; empty tool_plan → safe; happy path clean; ui_prompt fields settable |
 
 ### Phase 3 test additions
 
