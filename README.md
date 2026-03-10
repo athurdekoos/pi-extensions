@@ -9,6 +9,7 @@ A collection of extensions for [`@mariozechner/pi-coding-agent`](https://github.
 | [pi-clear](./pi-clear/) | `/clear` command to start a fresh session, optionally carrying over the editor draft | Ready |
 | [pi-gh](./pi-gh/) | Structured GitHub CLI tools for issues, PRs, Actions, and repo info | Ready |
 | [pi-subagents](./pi-subagents/) | Sub-agent orchestration (planned) | In progress |
+| [pi-google-adk](./pi-google-adk/) | Google Agent Development Kit integration | In progress |
 
 ## Quick start
 
