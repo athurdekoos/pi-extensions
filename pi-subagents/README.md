@@ -1,6 +1,6 @@
 # pi-subagents
 
-A Pi extension that adds a `delegate_to_subagent` tool, allowing the primary agent to delegate bounded tasks to a child subagent created in-process.
+A Pi extension that adds a `delegate_to_subagent` tool, allowing the primary agent to delegate bounded tasks to a child subagent created in-process. Supports ADK agent delegation when pi-google-adk is also loaded.
 
 ## What it does
 
@@ -11,6 +11,7 @@ A Pi extension that adds a `delegate_to_subagent` tool, allowing the primary age
 - Streams child output back to the parent as the child runs
 - Returns the child's final result as structured text
 - Prevents recursive delegation through two layers of defense
+- Resolves and delegates to ADK agents by name (when pi-google-adk is loaded)
 
 ## When to use it
 
@@ -19,6 +20,7 @@ Use this extension when the primary agent needs to:
 - Offload a focused subtask (e.g., "read these 5 files and summarize their structure")
 - Run a scoped coding task without polluting the parent conversation context
 - Execute a task with a restricted tool set for safety
+- Delegate to a specific ADK agent by name
 
 ## Installation
 
@@ -26,6 +28,12 @@ Use this extension when the primary agent needs to:
 
 ```bash
 pi -e ./index.ts
+```
+
+### With ADK integration
+
+```bash
+pi -e ./index.ts -e ../pi-google-adk/src/index.ts
 ```
 
 ### Auto-discovery
@@ -53,6 +61,64 @@ pi install pi-subagents
 | `files` | string[] | no | Files or directories to focus on |
 | `safeCustomTools` | string[] | no | Names of custom tools the child may use |
 | `modelOverride` | string | no | Model identifier (`provider/model-id`) for the child |
+| `agent` | string | no | Name or path of an ADK agent to delegate to |
+| `agentProvider` | `"auto"` \| `"adk"` | no | Agent provider for resolution. Default: `"auto"` |
+| `onMissingAgent` | `"prompt"` \| `"cancel"` | no | What to do when agent not found. Default: `"prompt"` |
+| `onAmbiguousAgent` | `"prompt"` \| `"cancel"` | no | What to do when agent matches multiple. Default: `"prompt"` |
+
+## ADK agent delegation
+
+When the `agent` parameter is provided and pi-google-adk is loaded:
+
+1. The agent name is resolved via `resolve_adk_agent` (registered by pi-google-adk)
+2. Resolution follows: path → exact name → case-insensitive → prefix matching
+3. If not found or ambiguous, the behavior depends on `onMissingAgent`/`onAmbiguousAgent`
+4. `run_adk_agent` is automatically allowlisted in the child session
+5. The child's system prompt includes the resolved agent's project path
+
+### Resolution statuses (Phase 3)
+
+The resolution flow returns structured results with explicit statuses:
+
+| Status | Meaning |
+|---|---|
+| `found` | Unique match resolved successfully |
+| `not_found` | No matching agent discovered |
+| `ambiguous` | Multiple matches, needs disambiguation |
+| `provider_unavailable` | pi-google-adk not loaded (resolve_adk_agent not registered) |
+| `execution_unavailable` | Resolution works but run_adk_agent not registered |
+| `interactive_selection_required` | Disambiguation needed but no interactive UI available |
+
+Each result includes `requestedAgent`, `availableMatches`, and `uiAvailable` for programmatic handling.
+
+### Non-interactive behavior
+
+When running headless (SDK, CI, or when `hasUI` is false):
+
+- Selection prompts are not attempted
+- A structured `interactive_selection_required` result is returned
+- The result includes the available matches so callers can handle programmatically
+- Exact-match and unique case-insensitive matches still resolve without interaction
+
+### Example: delegate to ADK agent
+
+```json
+{
+  "task": "Research the current state of quantum computing",
+  "agent": "researcher",
+  "mode": "read_only"
+}
+```
+
+### Example: explicit cancellation for ambiguous
+
+```json
+{
+  "task": "Analyze the data",
+  "agent": "res",
+  "onAmbiguousAgent": "cancel"
+}
+```
 
 ## Safe custom tool allowlist
 
@@ -73,11 +139,14 @@ if (register) {
 
 3. The `delegate_to_subagent` tool itself is **always excluded** from the child, even if explicitly listed.
 
+4. When `agent` is provided, `run_adk_agent` is auto-allowlisted using a deduped Set (no mutation of the caller's array).
+
 ### Design principles
 
 - **Explicit over implicit**: no tools are inherited automatically
 - **Auditable**: the allowlist is visible in every tool call
 - **Deny-by-default**: unlisted tools are unavailable to the child
+- **Non-mutating**: the caller's `safeCustomTools` array is never modified
 
 ## Recursion prevention
 
@@ -103,15 +172,9 @@ A module-scoped depth counter and a `WeakSet` of active child signals provide de
 
 ### Read-only subagent
 
-```
-Read the files in src/core/ and summarize the module structure.
-```
-
-The LLM may call:
-
 ```json
 {
-  "task": "Read all files in src/core/ and describe the module structure, exports, and dependencies between modules.",
+  "task": "Read all files in src/core/ and describe the module structure.",
   "mode": "read_only",
   "outputStyle": "summary",
   "files": ["src/core/"]
@@ -120,15 +183,9 @@ The LLM may call:
 
 ### Coding subagent
 
-```
-Add JSDoc comments to all exported functions in src/utils.ts.
-```
-
-The LLM may call:
-
 ```json
 {
-  "task": "Add JSDoc comments to every exported function in src/utils.ts. Describe parameters, return types, and purpose.",
+  "task": "Add JSDoc comments to every exported function in src/utils.ts.",
   "mode": "coding",
   "successCriteria": "Every exported function has a JSDoc comment.",
   "files": ["src/utils.ts"]
@@ -136,12 +193,6 @@ The LLM may call:
 ```
 
 ### Subagent with safe custom tools
-
-```
-Use the gh_issue tool to list open issues and summarize them.
-```
-
-The LLM may call:
 
 ```json
 {
@@ -152,16 +203,27 @@ The LLM may call:
 }
 ```
 
+### ADK agent delegation
+
+```json
+{
+  "task": "Research and summarize the latest developments in AI safety.",
+  "agent": "researcher",
+  "mode": "read_only",
+  "outputStyle": "full_report"
+}
+```
+
 ## Testing
 
-The extension has a 7-layer test suite with 122 tests. See [tests/TESTING.md](tests/TESTING.md) for full details.
+187 automated tests across 8 layers. See [tests/TESTING.md](tests/TESTING.md) for full details.
 
 ### Running tests
 
 ```bash
-npm test              # fast tests only (117 tests, ~4s)
-npm run test:all      # all tests including real-LLM (122 tests, ~17s)
-npm run test:llm      # real-LLM veracity tests only (5 tests, ~15s)
+npm test              # fast tests only (excludes LLM, ~4s)
+npm run test:all      # all tests including real-LLM (~20s)
+npm run test:llm      # real-LLM veracity tests only (~15s)
 npm run test:unit     # unit tests
 npm run test:extension # extension-level tests
 npm run test:integration # integration tests
@@ -173,36 +235,47 @@ npm run test:smoke    # extension discovery/loading smoke tests
 
 | Layer | Location | Count | What it protects |
 |---|---|---|---|
-| Unit | `tests/unit/` | 36 | Child prompt construction, tool allowlist resolution, recursion guard logic, parameter schema |
-| Extension | `tests/extension/` | 18 | Tool registration in parent/child mode, execute behavior with mocked sessions, streaming, disposal, error reporting |
-| Integration | `tests/integration/` | 21 | Real SDK wiring: `DefaultResourceLoader`, `SessionManager`, built-in tool sets, child tool surface, parallel subagent execution, concurrency classification, isolation |
-| Veracity (mock) | `tests/veracity/` | 23 | Canary-based proof that tool results flow through correctly and are not fabricated; parallel partial-failure honesty; derived canary traps |
-| Smoke | `tests/smoke/` | 19 | Real pi loader discovers and loads the extension from configured paths, `.pi/extensions/` symlinks, and `pi.extensions` manifest; tool absent when extension not on path; tool metadata and schema correct after real loading; post-load invocation proves the full chain (discover → load → register → expose → invoke) with both `read_only` and `coding` modes |
-| Veracity (LLM) | `tests/llm/` | 5 | Real model inference with SHA-256-derived canaries, decoy detection, honest failure reporting |
+| Unit | `tests/unit/` | 55 | Child prompt construction, tool allowlist resolution, recursion guard logic, parameter schema, ADK resolution, pending safe tools |
+| Extension | `tests/extension/` | 18 | Tool registration in parent/child mode, execute behavior with mocked sessions |
+| Integration | `tests/integration/` | 21 | Real SDK wiring: DefaultResourceLoader, SessionManager, built-in tool sets, parallel execution |
+| Veracity (mock) | `tests/veracity/` | 23 | Canary-based proof that tool results flow through correctly and are not fabricated |
+| Smoke | `tests/smoke/` | 19 | Real pi loader discovers and loads the extension; post-load invocation |
+| Safe tool veracity | `tests/llm/` | 9 | Real-LLM veracity with safe custom tools and derived canaries |
 
-### Veracity trap tests
+### Phase 3 test additions
 
-The veracity tests use hidden canary nonces to prove the agent truly uses the subagent tool rather than fabricating results.
+| Test | What it protects |
+|---|---|
+| provider_unavailable vs not_found | Empty registry → `provider_unavailable`, not misleading `not_found` |
+| execution_unavailable | Resolve works but run_adk_agent missing → distinct error |
+| interactive_selection_required | No UI + ambiguous → structured result with matches, not silent failure |
+| Dedup and non-mutation | Set-based allowlist prevents duplicates; caller array not modified |
+| Structured result fields | `requestedAgent`, `availableMatches`, `uiAvailable` present in all results |
 
-**Positive traps**: A custom tool returns a SHA-256-derived canary. Tests assert both tool invocation telemetry and that the final answer contains the exact derived value. Includes a decoy variant where a fake token is planted in the prompt.
+## Exported internals
 
-**Negative traps**: The tool is absent, broken, or blocked. Tests assert the canary does not appear and the agent reports failure honestly.
+The following symbols are exported from `index.ts`:
 
-The real-LLM tests auto-skip when no API key is available.
+### For testing and reuse
 
-## Exported test helpers
+- `buildChildSystemPrompt()` — child system prompt construction
+- `buildAdkChildSystemPrompt()` — ADK-augmented child prompt
+- `resolveAllowedCustomTools()` — allowlist resolution
+- `resolveAdkAgentViaTool()` — tool-mediated ADK resolution
+- `resolveAdkAgentWithPrompt()` — full resolution + prompt flow
+- `promptAgentSelection()` — interactive agent selection
+- `checkAdkExecutionAvailable()` — run_adk_agent availability check
+- `isInteractiveUIAvailable()` — UI availability check
+- `DelegateParamsSchema` — parameter schema
+- `DelegateParams` — parameter type
+- `ResolvedAdkAgent` — resolved agent interface
+- `AdkResolutionResult` — structured resolution result
+- `AdkResolutionStatus` — resolution status union type
 
-The following symbols are exported from `index.ts` with a `_` prefix for test use only:
+### Test-only (prefixed with `_`)
 
-- `_getChildDepth()`, `_setChildDepth()` -- recursion depth accessors
-- `_addChildSignal()`, `_removeChildSignal()` -- signal set accessors
-
-The following are exported for both testing and potential reuse:
-
-- `buildChildSystemPrompt()` -- child system prompt construction
-- `resolveAllowedCustomTools()` -- allowlist resolution
-- `DelegateParamsSchema` -- parameter schema
-- `DelegateParams` -- parameter type
+- `_getChildDepth()`, `_setChildDepth()` — recursion depth accessors
+- `_addChildSignal()`, `_removeChildSignal()` — signal set accessors
 
 ## Security considerations
 
@@ -210,6 +283,7 @@ The following are exported for both testing and potential reuse:
 - `coding` mode children can modify files via bash, edit, and write
 - The child inherits the parent's API key and model access
 - Custom tools in the allowlist execute with full parent-level permissions
+- ADK agent execution spawns a subprocess that may make network calls
 - Use `read_only` mode and minimal `safeCustomTools` for untrusted or exploratory tasks
 
 ## Dependencies

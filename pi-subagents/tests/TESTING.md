@@ -1,6 +1,6 @@
 # pi-subagents Test Suite
 
-7-layer test suite for the `pi-subagents` extension.
+8-layer test suite (187 tests) for the `pi-subagents` extension.
 
 ## Running
 
@@ -29,6 +29,8 @@ Fast, pure-logic tests with no mocks or I/O.
 | `tool-resolution.test.ts` | Allowlist returns only named tools, always excludes `delegate_to_subagent`, empty allowlist yields nothing, unknown names are silently ignored |
 | `recursion-guard.test.ts` | `childDepth` accessors work correctly, extension refuses to register when `childDepth > 0` |
 | `schema-validation.test.ts` | Required `task` field enforced, optional fields validated, mode/outputStyle enums reject invalid values |
+| `adk-agent-resolution.test.ts` | ADK resolution via tool registry, provider-unavailable vs not-found distinction, execution-unavailable detection, non-interactive selection-required behavior, prompt agent selection with/without UI, structured result fields, auto-allowlist dedup and non-mutation, Phase 3 status semantics |
+| `pending-safe-tools.test.ts` | Load-order-resilient safe tool registration via pending queue |
 
 ### 2. Extension-Level Tests (`tests/extension/`)
 

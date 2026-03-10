@@ -1,13 +1,18 @@
 # pi-google-adk
 
-A Pi extension for scaffolding Python-first Google ADK (Agent Development Kit) projects locally.
+A Pi extension for scaffolding, discovering, resolving, and running Python-first Google ADK (Agent Development Kit) projects locally.
 
-Registers two LLM-callable tools:
+Registers five LLM-callable tools:
 
-- **`create_adk_agent`** — scaffold a new ADK project from a template
-- **`add_adk_capability`** — add tools, MCP, workflows, evals, and docs to an existing project
+| Tool | Purpose |
+|------|---------|
+| **`create_adk_agent`** | Scaffold a new ADK project from a template |
+| **`add_adk_capability`** | Add tools, MCP, workflows, evals, and docs to an existing project |
+| **`run_adk_agent`** | Execute an on-disk ADK project and return its output |
+| **`list_adk_agents`** | Discover all ADK projects in the workspace |
+| **`resolve_adk_agent`** | Resolve a name or path to a specific ADK project |
 
-All output is deterministic and template-driven. No AI-generated code at runtime.
+All scaffolding output is deterministic and template-driven. No AI-generated code at runtime.
 
 ## Quick Start
 
@@ -28,11 +33,11 @@ Add a custom tool called fetch_data to ./agents/research_bot
 ```
 
 ```
-Create a sequential agent called pipeline_bot at ./agents/pipeline_bot
+List available ADK agents
 ```
 
 ```
-Add an eval stub to the project at ./agents/research_bot
+Run the research_bot agent with: "What is the capital of France?"
 ```
 
 That is all you need to get started. The rest of this document is reference.
@@ -43,7 +48,7 @@ That is all you need to get started. The rest of this document is reference.
 
 - Node.js (for npm)
 - Pi (`@mariozechner/pi-coding-agent` 0.57+)
-- Python 3.10+ and `pip install google-adk` (for the generated projects, not for this extension; upstream `google-adk` requires `>=3.10`)
+- Python 3.10+ and `pip install google-adk` (for the generated projects and `run_adk_agent`; upstream `google-adk` requires `>=3.10`)
 - A Google API key (for Gemini models in the generated projects)
 
 ### Install dependencies
@@ -62,12 +67,18 @@ npm install
 pi -e ./src/index.ts
 ```
 
-**Option B — auto-discovery via Pi extensions directory:**
+**Option B — with pi-subagents for ADK delegation:**
+
+```bash
+pi -e ./src/index.ts -e ../pi-subagents/index.ts
+```
+
+**Option C — auto-discovery via Pi extensions directory:**
 
 Copy or symlink the extension folder into `~/.pi/agent/extensions/` or `.pi/extensions/`
 in your project. Pi loads it automatically on startup.
 
-**Option C — reference from a Pi package manifest:**
+**Option D — reference from a Pi package manifest:**
 
 Add to your project's `package.json`:
 
@@ -111,14 +122,6 @@ agents/research_bot/
 
 The `mcp` template adds `mcp_config.py`. The `sequential` template adds `steps.py`.
 
-**Generated Python imports:**
-
-- Basic and MCP templates: `from google.adk import Agent`
-- Sequential template: `from google.adk.agents import SequentialAgent`
-- MCP config: `from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioServerParameters`
-
-These match `google-adk` 1.x API conventions.
-
 ### `add_adk_capability`
 
 Add a capability to an existing ADK project.
@@ -140,48 +143,97 @@ Add a capability to an existing ADK project.
 | `deploy_stub` | Creates a `DEPLOY.md` deployment notes document |
 | `observability_notes` | Creates an `OBSERVABILITY.md` with logging/tracing guidance |
 
-**Capability options:**
+### `run_adk_agent`
 
-| Option | Used by | Description |
+Execute an on-disk ADK project using `adk run --replay` and return the agent's output.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `project_path` | string | *(required)* | Path to the ADK project root, relative to workspace |
+| `prompt` | string | *(required)* | Task or query to send to the ADK agent |
+| `timeout_seconds` | number | `180` | Maximum execution time (5–600 seconds) |
+
+**Result structure:**
+
+| Field | Description |
+|---|---|
+| `success` | Whether execution completed successfully |
+| `final_output` | Best-effort clean final agent response (parsed from turn markers) |
+| `raw_stdout` | Complete stdout for debugging |
+| `raw_stderr` | Complete stderr for debugging |
+| `agent_name` | Detected agent name |
+| `template` | Detected template type |
+| `exit_code` | Process exit code |
+| `error` | Error message if failed |
+
+**Output parsing (Phase 3):** The `final_output` field extracts the last non-user turn from ADK's `[speaker]: content` output format. Multi-line agent responses are preserved. If no turn markers are found, falls back safely to trimmed stdout.
+
+### `list_adk_agents`
+
+Discover and list all ADK agent projects in the workspace.
+
+No parameters. Returns an array of discovered agents with name, path, template, capabilities, source (manifest or heuristic), and display label.
+
+### `resolve_adk_agent`
+
+Resolve a name or path query to a specific ADK project.
+
+| Parameter | Type | Description |
 |---|---|---|
-| `tool_name` | `custom_tool` | Name for the new tool function |
-| `server_command` | `mcp_toolset` | MCP server command |
-| `server_args` | `mcp_toolset` | MCP server arguments |
-| `subagents` | `sequential_workflow` | List of subagent names |
-| `model` | `sequential_workflow` | Model for new subagents |
+| `query` | string | Agent name or relative path (e.g., `researcher`, `./agents/researcher`) |
 
-Each applied capability is recorded in `.adk-scaffold.json` and checked for duplicates on re-application.
+**Resolution order:**
+1. If query contains `/` or starts with `.`, resolve as a path first
+2. Exact name match
+3. Case-insensitive name match (only if unique)
+4. Prefix match (only if unique)
+5. If multiple matches, returns `ambiguous` status with match list
 
-## Example Prompts
+**Result statuses:** `found`, `not_found`, `ambiguous`
 
-These are natural-language prompts you can use in a Pi session with this extension loaded:
+## Cross-Extension Integration with pi-subagents
 
-**Scaffolding:**
+When both pi-google-adk and pi-subagents are loaded, ADK agents can be delegated to by name:
 
-```
-Create a basic ADK agent called my_assistant
-```
-
-```
-Scaffold an MCP agent called data_bot with model gemini-2.5-pro
-```
-
-```
-Create a sequential agent called review_pipeline at ./projects/review_pipeline
+```json
+{
+  "task": "Research the current state of quantum computing",
+  "agent": "researcher",
+  "mode": "read_only"
+}
 ```
 
-**Adding capabilities:**
+### How it works
+
+1. pi-google-adk registers `run_adk_agent` and `resolve_adk_agent` as safe tools via `registerSafeToolForSubagents()`
+2. This uses a load-order-resilient mechanism: if pi-subagents is already loaded, registers immediately; otherwise queues in `__piSubagents_pendingSafeTools`
+3. When pi-subagents receives an `agent` parameter, it calls `resolve_adk_agent` through the safe tool registry
+4. The resolved project path is injected into the child's instructions
+5. `run_adk_agent` is auto-allowlisted in the child session
+
+### Provider availability (Phase 3)
+
+pi-subagents distinguishes these states:
+- **`provider_unavailable`**: pi-google-adk not loaded (resolve_adk_agent not registered)
+- **`execution_unavailable`**: resolution works but run_adk_agent not registered
+- **`not_found`**: ADK provider loaded but no matching agent
+- **`ambiguous`**: multiple matches requiring disambiguation
+- **`interactive_selection_required`**: disambiguation needed but no UI available
+
+## Discovery
+
+ADK agents are discovered by scanning `./agents/` for subdirectories containing:
+- `.adk-scaffold.json` manifest (preferred, from `create_adk_agent`)
+- `.env.example` file (heuristic fallback)
+
+Discovery is live — newly created agents are found on the next scan without restart.
+
+### Display labels
+
+Agent labels include name, template, capabilities, and path for disambiguation:
 
 ```
-Add a custom tool called search_docs to the project at ./agents/my_assistant
-```
-
-```
-Add MCP toolset support to ./agents/data_bot
-```
-
-```
-Add eval, deploy, and observability stubs to ./agents/my_assistant
+researcher (mcp) [web_search, code_exec] — ./agents/researcher
 ```
 
 ## Scaffold Manifest
@@ -199,57 +251,93 @@ Every generated project includes `.adk-scaffold.json`:
 }
 ```
 
-Both tools use this manifest for project detection and duplicate avoidance.
+Both `create_adk_agent` and `add_adk_capability` use this manifest for project detection and duplicate avoidance.
 
-## ADK Docs MCP
+## Example Prompts
 
-When `add_adk_docs_mcp` is true (the default), `create_adk_agent` writes an example
-MCP config at `.pi/mcp/adk-docs.example.json` inside the generated project.
+**Scaffolding:**
 
-This file is a **local example only**. It is not installed globally. To use it,
-review the file and adapt it into your Pi MCP configuration manually.
+```
+Create a basic ADK agent called my_assistant
+Scaffold an MCP agent called data_bot with model gemini-2.5-pro
+Create a sequential agent called review_pipeline at ./projects/review_pipeline
+```
+
+**Adding capabilities:**
+
+```
+Add a custom tool called search_docs to the project at ./agents/my_assistant
+Add MCP toolset support to ./agents/data_bot
+Add eval, deploy, and observability stubs to ./agents/my_assistant
+```
+
+**Discovery and execution:**
+
+```
+List all ADK agents
+Run the researcher agent with: "Summarize recent AI safety papers"
+Delegate to researcher: analyze the trade-offs of microservices vs monoliths
+```
 
 ## Limitations
 
-These are known, intentional constraints of the current MVP:
+These are known, intentional constraints:
 
-- **`install_adk_skills` is a no-op.** The parameter exists as a future hook. When `true`, the tool returns a note suggesting manual installation. It never fails the tool call.
+- **`install_adk_skills` is a no-op.** The parameter exists as a future hook.
 - **Python only.** No TypeScript, Go, or Java scaffolding.
 - **Three templates, six capabilities.** No production deployment automation.
-- **Regex-based `tools=[...]` patching.** Targets generated code patterns only. If you heavily restructure `agent.py` by hand, `add_adk_capability` patching may not find the insertion point. The tool still creates the files; it just cannot wire them automatically.
-- **Manifest is informational.** `.adk-scaffold.json` is not load-bearing. Deleting or editing it does not break the generated project.
-- **No custom Pi renderers.** Tool output is plain JSON. Pi renders it as-is.
-- **ADK docs MCP is an example.** The emitted config is project-local and must be manually adapted into your Pi MCP settings.
+- **Regex-based `tools=[...]` patching.** Targets generated code patterns only.
+- **Manifest is informational.** `.adk-scaffold.json` is not load-bearing.
+- **No custom Pi renderers.** Tool output is plain JSON.
+- **ADK docs MCP is an example.** The emitted config is project-local.
+- **Output parsing is heuristic.** The `[speaker]: content` turn parser works with observed ADK CLI output. If ADK changes format, parsing falls back safely to full stdout.
 
 ## Safety
 
 - All paths are validated to stay within the current workspace. Path traversal is blocked.
 - Existing files are not overwritten unless `overwrite: true` is explicitly set.
 - No global config, credentials, or files outside the workspace are read or written.
-- No network requests. No background processes.
+- No network requests from the extension itself. `run_adk_agent` spawns a subprocess that may make network calls.
+- No background processes. ADK execution is synchronous with configurable timeout.
 
-## Verification
+## Testing
 
-Type-check and run the verification suite:
+150 automated tests across unit, extension, integration, and veracity layers.
 
 ```bash
-npm run verify
+npm test              # all tests (excludes LLM)
+npm run verify        # typecheck + verification suite
 ```
 
-This runs TypeScript type checking followed by 114 automated checks covering
-input validation, path traversal rejection, all three templates, Python syntax
-validation, `.gitignore` content, manifest tracking, overwrite protection,
-patch idempotency, multi-line `tools=[...]` patching, and stub file creation.
+### Test coverage
+
+| Layer | Tests | What it protects |
+|---|---|---|
+| Unit: adk-discovery | 21 | Discovery scanning, name/path/case/prefix resolution, labels, capabilities |
+| Unit: adk-runtime | 18 | Project validation, output parsing (turn extraction, multi-line, fallback) |
+| Unit: validators | 17 | Input validation for names, paths, templates, models |
+| Unit: templates | 12 | Template file generation for basic, mcp, sequential |
+| Unit: scaffold-manifest | 8 | Manifest creation, serialization, reading |
+| Unit: temp-replay | 8 | Replay file creation and cleanup |
+| Unit: project-detect | 4 | Project detection via manifest and heuristic |
+| Unit: fs-safe | 14 | Path safety, file operations, traversal prevention |
+| Unit: adk-docs-mcp | 3 | MCP config generation |
+| Unit: safe-tool-registration | 3 | Load-order-resilient safe tool registration |
+| Extension: registration | 10 | All 5 tools registered with correct metadata |
+| Extension: run-adk-agent | 6 | Runtime behavior, CLI availability, credential handling |
+| Integration: scaffold-workflow | 8 | End-to-end scaffold + capability workflows |
+| Veracity: scaffold-traps | 10 | Canary-based proof of actual file creation |
 
 ## Release Checklist
 
 Before tagging a release:
 
-- [ ] `npm run verify` passes (114 checks, 0 failures)
-- [ ] `npm run typecheck` passes with no errors
-- [ ] Manual smoke test: `pi -e ./src/index.ts` loads both tools
+- [ ] `npm run verify` passes
+- [ ] `npm test` passes (150 tests)
+- [ ] Manual smoke test: `pi -e ./src/index.ts` loads all 5 tools
 - [ ] Manual smoke test: create one project per template, inspect output
-- [ ] Manual smoke test: apply at least `custom_tool` and `eval_stub`, confirm manifest
+- [ ] Manual smoke test: `run_adk_agent` executes a project (requires ADK CLI + API key)
+- [ ] Manual smoke test: `list_adk_agents` and `resolve_adk_agent` find created projects
 - [ ] CHANGELOG.md updated with release entry
 - [ ] Version in `package.json` matches version in `src/lib/scaffold-manifest.ts`
 

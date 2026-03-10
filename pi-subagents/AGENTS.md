@@ -14,11 +14,11 @@ This file defines **local rules for this extension only**. If there is a conflic
 
 ## Extension Goal
 
-- Primary use case: delegate bounded subtasks to an in-process child agent session with scoped tools.
-- Main user workflow: the parent LLM calls `delegate_to_subagent` with a task, mode, and optional tool allowlist; the child runs and returns a result.
-- Key Pi integration points: `registerTool`, `createAgentSession`, `DefaultResourceLoader`, `SessionManager`, `readOnlyTools`/`codingTools`.
-- Required external tools or services: none beyond the Pi SDK and a configured LLM provider.
-- Main safety considerations: recursive delegation prevention (two-layer guard), explicit tool allowlisting, child cannot inherit parent extensions.
+- Primary use case: delegate bounded subtasks to an in-process child agent session with scoped tools. Supports name-based delegation to ADK agents when pi-google-adk is loaded.
+- Main user workflow: the parent LLM calls `delegate_to_subagent` with a task, mode, and optional tool allowlist; the child runs and returns a result. The `agent` parameter enables ADK agent resolution and delegation.
+- Key Pi integration points: `registerTool`, `createAgentSession`, `DefaultResourceLoader`, `SessionManager`, `readOnlyTools`/`codingTools`. Cross-extension: safe tool registry via globalThis for tool-mediated ADK integration.
+- Required external tools or services: none beyond the Pi SDK and a configured LLM provider. ADK delegation requires pi-google-adk to be loaded.
+- Main safety considerations: recursive delegation prevention (two-layer guard), explicit tool allowlisting, child cannot inherit parent extensions, structured error handling for missing providers.
 
 ## Source of Truth
 Read these files before making changes:
@@ -51,6 +51,8 @@ pi-subagents/
       tool-resolution.test.ts
       recursion-guard.test.ts
       schema-validation.test.ts
+      adk-agent-resolution.test.ts
+      pending-safe-tools.test.ts
     extension/
       registration.test.ts
       tool-behavior.test.ts
@@ -61,11 +63,13 @@ pi-subagents/
       trap-positive.test.ts
       trap-negative.test.ts
       parallel-subagents-traps.test.ts
+      safe-tool-traps.test.ts
     smoke/
       extension-discovery.test.ts
       post-load-invocation.test.ts
     llm/
       real-veracity.test.ts
+      safe-tool-veracity.test.ts
 ```
 
 ## Local Coding Rules
@@ -82,12 +86,26 @@ pi-subagents/
 
 The following are exported from `index.ts` for testability and potential reuse:
 
+### Core
 - `buildChildSystemPrompt(params)` -- constructs the child system prompt.
+- `buildAdkChildSystemPrompt(params, agent)` -- ADK-augmented child prompt.
 - `resolveAllowedCustomTools(parentTools, registry, allowedNames)` -- filters the safe tool registry by allowlist, always excludes `delegate_to_subagent`.
 - `DelegateParamsSchema` -- TypeBox parameter schema.
 - `DelegateParams` -- TypeScript type for the parameters.
-- `_getChildDepth()`, `_setChildDepth(n)` -- test-only accessors for the recursion depth counter.
-- `_addChildSignal(signal)`, `_removeChildSignal(signal)` -- test-only accessors for the active child signal set.
+
+### ADK resolution (Phase 2+3)
+- `resolveAdkAgentViaTool(registry, cwd, query)` -- tool-mediated ADK agent resolution.
+- `resolveAdkAgentWithPrompt(registry, cwd, query, onMissing, onAmbiguous, ctx)` -- full resolution + prompt flow.
+- `promptAgentSelection(ctx, agents, title, requestedAgent?)` -- interactive agent selection.
+- `checkAdkExecutionAvailable(registry)` -- checks if run_adk_agent is registered.
+- `isInteractiveUIAvailable(ctx)` -- checks if interactive UI is available.
+- `ResolvedAdkAgent` -- resolved agent metadata interface.
+- `AdkResolutionResult` -- structured resolution result interface.
+- `AdkResolutionStatus` -- resolution status union type.
+
+### Test-only (prefixed with `_`)
+- `_getChildDepth()`, `_setChildDepth(n)` -- recursion depth counter accessors.
+- `_addChildSignal(signal)`, `_removeChildSignal(signal)` -- active child signal set accessors.
 
 Test-only exports are prefixed with `_`. Do not use them in production code paths.
 
@@ -105,6 +123,11 @@ These properties must hold at all times. Tests enforce them.
 8. The child session is always disposed in the `finally` block (success, error, or cancellation).
 9. Errors from the child are surfaced honestly in the tool result, not hidden.
 10. Cancellation (aborted signal) is reported as cancellation, not as an error or success.
+11. When pi-google-adk is not loaded, `agent` parameter returns `provider_unavailable`, never misleading `not_found`.
+12. When `run_adk_agent` is not registered, resolution succeeds but returns `execution_unavailable`.
+13. Auto-allowlisting uses a Set -- the caller's `safeCustomTools` array is never mutated.
+14. Ambiguous prefix matches never silently resolve; they go to prompt-or-cancel or structured ambiguity result.
+15. Non-interactive contexts get `interactive_selection_required` with match data, never silent degradation.
 
 ## Tool and Command Rules
 For any tool or command added here:
@@ -125,13 +148,13 @@ Document registered tools, commands, hooks, and widgets in `README.md`.
 
 ## Testing Rules
 
-The test suite has 7 layers (118 tests). See `tests/TESTING.md` for full documentation.
+The test suite has 8 layers (187 tests). See `tests/TESTING.md` for full documentation.
 
 ### Running
 
 ```bash
 npm test              # fast tests only (excludes LLM, ~4s)
-npm run test:all      # all tests including real-LLM (~17s)
+npm run test:all      # all tests including real-LLM (~20s)
 npm run test:llm      # real-LLM veracity tests only (~15s)
 npm run test:smoke    # extension discovery/loading smoke tests
 ```
@@ -140,12 +163,12 @@ npm run test:smoke    # extension discovery/loading smoke tests
 
 | Layer | Dir | Tests | Speed |
 |---|---|---|---|
-| Unit | `tests/unit/` | 36 | fast |
+| Unit | `tests/unit/` | 55 | fast |
 | Extension | `tests/extension/` | 18 | fast |
 | Integration | `tests/integration/` | 21 | fast |
 | Veracity (mock) | `tests/veracity/` | 23 | fast |
 | Smoke | `tests/smoke/` | 19 | fast |
-| Veracity (LLM) | `tests/llm/` | 5 | slow (~15s, requires API key) |
+| Veracity (LLM) | `tests/llm/` | 9 | slow (~15s, requires API key) |
 
 ### When to add tests
 
@@ -154,6 +177,7 @@ npm run test:smoke    # extension discovery/loading smoke tests
 - Any change to session construction or tool wiring: add or update integration tests.
 - Any change to error handling or result propagation: verify veracity trap coverage.
 - Any change to `package.json` pi manifest, entry point, or export structure: verify smoke tests pass.
+- Any change to ADK resolution, provider checks, or prompt flow: update `adk-agent-resolution.test.ts`.
 
 ### Veracity test design
 
@@ -192,7 +216,7 @@ pi -e ./index.ts
 ## Definition of Done
 A change in this extension is done when:
 - behavior matches the request
-- `npm run test:all` passes (122 tests)
+- `npm run test:all` passes (187 tests)
 - new tests protect intended behavior
 - documentation is updated if needed
 - no obvious dead code or placeholder comments remain
@@ -213,7 +237,8 @@ After coding:
 ## Notes Specific to This Extension
 
 - Supported platforms: any platform supported by `@mariozechner/pi-coding-agent`.
-- Required CLI tools: none.
-- The `__piSubagents_registerSafeTool` global is the only cross-extension integration point.
+- Required CLI tools: none (ADK delegation requires pi-google-adk and `adk` CLI).
+- Cross-extension integration uses two globalThis keys: `__piSubagents_registerSafeTool` (immediate registration) and `__piSubagents_pendingSafeTools` (queued registration for load-order resilience).
 - The child session inherits the parent's API key and model; there is no separate auth for children.
+- ADK agent execution spawns a subprocess (via `run_adk_agent`) that may make network calls.
 - The real-LLM tests use `claude-haiku-4-5` via Anthropic OAuth. They auto-skip if no key is available. To change the model, edit `MODEL_ID` in `tests/llm/real-veracity.test.ts`.

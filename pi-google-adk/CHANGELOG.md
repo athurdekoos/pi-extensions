@@ -1,8 +1,40 @@
 # Changelog
 
-## 0.1.0
+## 0.3.0 — Phase 3: UX hardening
 
-Initial release.
+### Improvements
+
+- **Output parsing**: `extractFinalOutput` now parses ADK CLI `[speaker]: content` turn markers, extracting the last agent response. Multi-line responses preserved. Falls back safely to trimmed stdout when no markers are found.
+- **Result fields**: `AdkRunResult` now includes `raw_stdout` and `raw_stderr` for debugging. Old `stdout`/`stderr` fields kept as deprecated aliases.
+- **Richer labels**: Discovery labels now include capabilities summary (e.g., `researcher (mcp) [web_search, code_exec] — ./agents/researcher`).
+
+### Tests
+
+- 150 automated tests (up from 114)
+- Added output parsing tests: turn extraction, multi-line, multi-agent, noise filtering, fallback
+- Added label tests: capabilities in labels, omission when empty
+
+## 0.2.0 — Phase 2: Discovery and resolution
+
+### New tools
+
+- **`run_adk_agent`** — Execute an on-disk ADK project via `adk run --replay` and return its output. Validates project structure, checks CLI availability, enforces timeout, supports cancellation.
+- **`list_adk_agents`** — Discover all ADK agent projects under `./agents/`. Returns name, path, template, capabilities, source, and label.
+- **`resolve_adk_agent`** — Resolve a name or path to a specific ADK project. Supports exact, case-insensitive, and prefix matching. Returns `found`, `not_found`, or `ambiguous`.
+
+### New libraries
+
+- **`adk-discovery.ts`** — ADK project scanning and resolution logic.
+- **`adk-runtime.ts`** — ADK CLI execution, project validation, output extraction.
+- **`safe-tool-registration.ts`** — Load-order-resilient registration into pi-subagents safe tool registry.
+- **`temp-replay.ts`** — Temp replay file management for `adk run --replay`.
+
+### Cross-extension integration
+
+- `run_adk_agent` and `resolve_adk_agent` registered as safe tools for pi-subagents.
+- Load-order resilient: works whether pi-subagents loads before or after pi-google-adk.
+
+## 0.1.0 — Phase 1: Scaffolding
 
 ### Tools
 
@@ -17,7 +49,6 @@ Initial release.
 - Idempotent capability application with duplicate detection
 - Optional ADK docs MCP example config (project-local, not globally installed)
 - Python syntax validated across all generated code
-- 114 automated verification checks
 
 ### Known Limitations
 
