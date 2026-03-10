@@ -15,11 +15,11 @@ This agent coordinates a pipeline of subagents that run in sequence.
 Each subagent handles one step of the workflow.
 """
 
-import google.adk as adk
+from google.adk.agents import SequentialAgent
 from .steps import research_agent, draft_agent, review_agent
 
 
-root_agent = adk.SequentialAgent(
+root_agent = SequentialAgent(
     name="${v.name}",
     sub_agents=[research_agent, draft_agent, review_agent],
     description="A sequential workflow that researches, drafts, and reviews.",
@@ -34,7 +34,7 @@ Each agent handles one step. Edit these or add new steps as needed.
 The sequential agent runs them in order from top to bottom.
 """
 
-import google.adk as adk
+from google.adk import Agent
 
 
 def search_web(query: str) -> str:
@@ -42,7 +42,7 @@ def search_web(query: str) -> str:
     return f"[Search results for: {query}]"
 
 
-research_agent = adk.LlmAgent(
+research_agent = Agent(
     model="${v.model}",
     name="researcher",
     instruction="""You are a research assistant.
@@ -51,7 +51,7 @@ Summarize your findings clearly.""",
     tools=[search_web],
 )
 
-draft_agent = adk.LlmAgent(
+draft_agent = Agent(
     model="${v.model}",
     name="drafter",
     instruction="""You are a writing assistant.
@@ -60,7 +60,7 @@ Focus on accuracy and readability.""",
     tools=[],
 )
 
-review_agent = adk.LlmAgent(
+review_agent = Agent(
     model="${v.model}",
     name="reviewer",
     instruction="""You are a review assistant.

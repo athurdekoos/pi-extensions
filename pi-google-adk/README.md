@@ -48,7 +48,7 @@ Scaffold a new Python Google ADK project.
 | `path` | string | `./agents/<name>` | Target directory |
 | `template` | `basic` \| `mcp` \| `sequential` | `basic` | Project template |
 | `model` | string | `gemini-2.5-flash` | Gemini model |
-| `install_adk_skills` | boolean | `true` | Attempt ADK skill install (best-effort) |
+| `install_adk_skills` | boolean | `true` | Best-effort ADK skill install (see note below) |
 | `add_adk_docs_mcp` | boolean | `true` | Emit ADK docs MCP example config |
 | `overwrite` | boolean | `false` | Overwrite existing files |
 
@@ -72,6 +72,14 @@ agents/research_bot/
   README.md
   .pi/mcp/adk-docs.example.json
 ```
+
+**Generated Python imports:**
+
+- Basic and MCP templates use `from google.adk import Agent`
+- Sequential template uses `from google.adk.agents import SequentialAgent`
+- MCP config uses `from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioServerParameters`
+
+These match `google-adk` 1.x API conventions. `Agent` is the public alias for `LlmAgent`.
 
 ### `add_adk_capability`
 
@@ -138,6 +146,17 @@ The config connects to the ADK documentation via `llms.txt`:
 }
 ```
 
+## `install_adk_skills` Behavior
+
+The `install_adk_skills` parameter is **best-effort / graceful degradation only**.
+
+The current implementation does not automatically install Pi skills. When
+`install_adk_skills` is `true`, the tool returns a note suggesting manual
+installation. The tool never fails due to skill installation being unavailable.
+
+This parameter exists as a hook for future environments where programmatic
+skill installation is possible.
+
 ## Design Notes
 
 - **Python only** — No TypeScript, Go, or Java scaffolding
@@ -146,14 +165,24 @@ The config connects to the ADK documentation via `llms.txt`:
 - **ADK docs MCP is an example** — Emitted as a project-local file, never globally installed
 - **MVP scope** — Three templates, six capabilities, no production deployment automation
 - **Safe writes** — Path traversal is blocked; existing files are not overwritten unless `overwrite: true`
+- **Idempotent patching** — `add_adk_capability` checks for existing imports and files before writing
 
 ## Verification
 
-Type-check the extension:
+Type-check and run the verification suite:
 
 ```bash
-npm run typecheck
+npm run verify
 ```
+
+This runs TypeScript type checking followed by a test script that exercises:
+- input validation (names, paths)
+- path traversal rejection
+- all three template generators
+- Python syntax validation of generated code
+- overwrite protection
+- patch idempotency
+- stub capability file creation
 
 Manual test:
 

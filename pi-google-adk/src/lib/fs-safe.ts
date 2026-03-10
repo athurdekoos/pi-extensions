@@ -20,7 +20,7 @@ export function safePath(root: string, target: string): string {
   const resolvedRoot = resolve(root);
   const resolvedTarget = resolve(root, normalize(target));
   const rel = relative(resolvedRoot, resolvedTarget);
-  if (rel.startsWith("..") || resolve(rel) === resolvedTarget) {
+  if (rel.startsWith("..")) {
     throw new Error(`Path traversal blocked: "${target}" escapes root "${root}"`);
   }
   return resolvedTarget;

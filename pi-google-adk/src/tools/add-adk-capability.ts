@@ -316,7 +316,7 @@ function addSequentialWorkflow(
   const subagentDefs = subagents
     .map(
       (name) => `
-${name} = adk.LlmAgent(
+${name} = Agent(
     model="${model}",
     name="${name}",
     instruction="""You are the ${name} step.
@@ -331,7 +331,7 @@ Complete your part of the workflow and pass results to the next step.""",
 Edit the subagents below to define your workflow steps.
 """
 
-import google.adk as adk
+from google.adk import Agent
 
 ${subagentDefs}
 `;
@@ -348,11 +348,11 @@ ${subagentDefs}
     const subagentImports = subagents.join(", ");
     const workflowAgentPy = `"""${agentName} - Sequential workflow agent."""
 
-import google.adk as adk
+from google.adk.agents import SequentialAgent
 from .workflow import ${subagentImports}
 
 
-root_agent = adk.SequentialAgent(
+root_agent = SequentialAgent(
     name="${agentName}_workflow",
     sub_agents=[${subagentImports}],
     description="Sequential workflow for ${agentName}.",
@@ -370,11 +370,11 @@ root_agent = adk.SequentialAgent(
     const subagentImports = subagents.join(", ");
     const newAgentPy = `"""${agentName} - Sequential workflow agent."""
 
-import google.adk as adk
+from google.adk.agents import SequentialAgent
 from .workflow import ${subagentImports}
 
 
-root_agent = adk.SequentialAgent(
+root_agent = SequentialAgent(
     name="${agentName}_workflow",
     sub_agents=[${subagentImports}],
     description="Sequential workflow for ${agentName}.",

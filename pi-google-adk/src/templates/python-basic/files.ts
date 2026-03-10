@@ -10,7 +10,7 @@ export interface TemplateVars {
 export function agentPy(v: TemplateVars): string {
   return `"""${v.name} - A basic Google ADK agent."""
 
-import google.adk as adk
+from google.adk import Agent
 
 
 def get_greeting(name: str) -> str:
@@ -24,7 +24,7 @@ def get_current_time() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-root_agent = adk.LlmAgent(
+root_agent = Agent(
     model="${v.model}",
     name="${v.name}",
     instruction="""You are a helpful assistant named ${v.name}.

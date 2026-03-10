@@ -12,7 +12,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "verify": "tsc --noEmit && echo 'pi-google-adk: typecheck passed'"
+    "verify": "tsc --noEmit && npx tsx scripts/verify.ts"
   },
   "pi": {
     "extensions": ["./src/index.ts"]

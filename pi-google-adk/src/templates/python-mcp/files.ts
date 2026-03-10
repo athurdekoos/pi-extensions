@@ -11,7 +11,7 @@ export interface TemplateVars {
 export function agentPy(v: TemplateVars): string {
   return `"""${v.name} - A Google ADK agent with MCP toolset integration."""
 
-import google.adk as adk
+from google.adk import Agent
 from .mcp_config import get_mcp_toolsets
 
 
@@ -23,7 +23,7 @@ def get_greeting(name: str) -> str:
 # MCP toolsets are loaded from mcp_config.py
 mcp_toolsets = get_mcp_toolsets()
 
-root_agent = adk.LlmAgent(
+root_agent = Agent(
     model="${v.model}",
     name="${v.name}",
     instruction="""You are a helpful assistant named ${v.name}.
