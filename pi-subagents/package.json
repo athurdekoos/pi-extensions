@@ -23,6 +23,7 @@
     "test:extension": "vitest run tests/extension/",
     "test:integration": "vitest run tests/integration/",
     "test:veracity": "vitest run tests/veracity/",
+    "test:smoke": "vitest run tests/smoke/",
     "test:watch": "vitest"
   },
   "devDependencies": {

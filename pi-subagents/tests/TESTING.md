@@ -1,6 +1,6 @@
 # pi-subagents Test Suite
 
-5-layer test suite for the `pi-subagents` extension.
+6-layer test suite for the `pi-subagents` extension.
 
 ## Running
 
@@ -13,6 +13,7 @@ npm run test:unit     # unit tests only
 npm run test:extension # extension-level tests only
 npm run test:integration # integration tests only
 npm run test:veracity # mock veracity traps only
+npm run test:smoke    # extension discovery/loading smoke tests
 npm run test:watch    # vitest in watch mode
 ```
 
@@ -54,6 +55,35 @@ Proves actual tool use vs bluffing through hidden canary/nonce patterns.
 |---|---|
 | `trap-positive.test.ts` | Tool was called, result contains exact canary from child, derived canary works, decoy vs real canary distinguished, multiple runs with fresh nonces each produce unique results |
 | `trap-negative.test.ts` | Tool absent/blocked/failed: no canary fabricated, error reported honestly, decoy in task not echoed as answer, empty child output reported truthfully |
+
+### 7. Smoke Tests (`tests/smoke/`)
+
+Extension discovery and loading verification through the real pi loader.
+
+| File | Protects |
+|---|---|
+| `extension-discovery.test.ts` | Pi discovers and loads `pi-subagents` through `discoverAndLoadExtensions`; `delegate_to_subagent` is available after real loading; tool is absent when extension path is not provided; `.pi/extensions` directory discovery works; symlinked packages are discoverable; `pi.extensions` manifest is respected; tool metadata and schema shape are correct after real loading |
+
+#### What these smoke tests prove
+
+- The extension package is correctly shaped for pi's real loader (package.json manifest, entry point, export structure).
+- `discoverAndLoadExtensions` can find and load the extension from a configured path, a `.pi/extensions` symlink, or a package root with `pi.extensions` manifest.
+- The tool `delegate_to_subagent` is registered and has the correct schema when loaded through the real discovery path.
+- The extension is NOT discovered when it is not on any configured or standard path.
+
+#### What they do NOT prove
+
+- Behavioral correctness of the tool (covered by extension-level and veracity tests).
+- Real LLM interaction (covered by LLM veracity tests).
+- Child session construction details (covered by integration tests).
+
+#### How they differ from direct-import tests
+
+The existing extension and integration tests import the extension module directly (`from "../../index.js"`) and exercise the logic in-process. This is sufficient for behavioral testing but cannot detect packaging problems (wrong entry point, missing exports, broken manifest, loader incompatibility).
+
+The smoke tests never import the extension source. They reference it only as a filesystem path target for `discoverAndLoadExtensions`. If the extension cannot be discovered and loaded by the real pi loader, these tests fail even if the direct-import tests pass.
+
+A self-check guard in the smoke test file verifies at module load time that no direct import of the extension source is present in the test code (excluding comments).
 
 ## How Trap Tests Prove Real Tool Use
 

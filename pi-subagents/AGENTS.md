@@ -61,6 +61,8 @@ pi-subagents/
       trap-positive.test.ts
       trap-negative.test.ts
       parallel-subagents-traps.test.ts
+    smoke/
+      extension-discovery.test.ts
     llm/
       real-veracity.test.ts
 ```
@@ -122,7 +124,7 @@ Document registered tools, commands, hooks, and widgets in `README.md`.
 
 ## Testing Rules
 
-The test suite has 6 layers (103 tests). See `tests/TESTING.md` for full documentation.
+The test suite has 7 layers (118 tests). See `tests/TESTING.md` for full documentation.
 
 ### Running
 
@@ -130,6 +132,7 @@ The test suite has 6 layers (103 tests). See `tests/TESTING.md` for full documen
 npm test              # fast tests only (excludes LLM, ~4s)
 npm run test:all      # all tests including real-LLM (~17s)
 npm run test:llm      # real-LLM veracity tests only (~15s)
+npm run test:smoke    # extension discovery/loading smoke tests
 ```
 
 ### Layer summary
@@ -140,6 +143,7 @@ npm run test:llm      # real-LLM veracity tests only (~15s)
 | Extension | `tests/extension/` | 18 | fast |
 | Integration | `tests/integration/` | 21 | fast |
 | Veracity (mock) | `tests/veracity/` | 23 | fast |
+| Smoke | `tests/smoke/` | 15 | fast |
 | Veracity (LLM) | `tests/llm/` | 5 | slow (~15s, requires API key) |
 
 ### When to add tests
@@ -148,6 +152,7 @@ npm run test:llm      # real-LLM veracity tests only (~15s)
 - Any change to the `execute` function: add or update extension-level tests.
 - Any change to session construction or tool wiring: add or update integration tests.
 - Any change to error handling or result propagation: verify veracity trap coverage.
+- Any change to `package.json` pi manifest, entry point, or export structure: verify smoke tests pass.
 
 ### Veracity test design
 
@@ -186,7 +191,7 @@ pi -e ./index.ts
 ## Definition of Done
 A change in this extension is done when:
 - behavior matches the request
-- `npm run test:all` passes (103 tests)
+- `npm run test:all` passes (118 tests)
 - new tests protect intended behavior
 - documentation is updated if needed
 - no obvious dead code or placeholder comments remain
