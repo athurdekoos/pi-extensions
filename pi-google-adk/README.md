@@ -43,7 +43,7 @@ That is all you need to get started. The rest of this document is reference.
 
 - Node.js (for npm)
 - Pi (`@mariozechner/pi-coding-agent` 0.57+)
-- Python 3.11+ and `pip install google-adk` (for the generated projects, not for this extension)
+- Python 3.10+ and `pip install google-adk` (for the generated projects, not for this extension; upstream `google-adk` requires `>=3.10`)
 - A Google API key (for Gemini models in the generated projects)
 
 ### Install dependencies

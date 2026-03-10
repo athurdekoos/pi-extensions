@@ -113,6 +113,33 @@ export const DelegateParamsSchema = Type.Object({
         "Optional model identifier (provider/model-id) for the child. Falls back to the parent model.",
     })
   ),
+  agent: Type.Optional(
+    Type.String({
+      description:
+        "Name or path of an ADK agent to delegate to. " +
+        "Resolves via pi-google-adk discovery. " +
+        "If provided, run_adk_agent is auto-allowlisted and the resolved project path " +
+        "is injected into the child's instructions.",
+    })
+  ),
+  agentProvider: Type.Optional(
+    StringEnum(["auto", "adk"] as const, {
+      description:
+        'Agent provider for resolution. Currently only "adk" is supported. Default: "auto" (tries ADK).',
+    })
+  ),
+  onMissingAgent: Type.Optional(
+    StringEnum(["prompt", "cancel"] as const, {
+      description:
+        'What to do when the requested agent is not found. "prompt" shows a selection UI. "cancel" aborts. Default: "prompt".',
+    })
+  ),
+  onAmbiguousAgent: Type.Optional(
+    StringEnum(["prompt", "cancel"] as const, {
+      description:
+        'What to do when the requested agent matches multiple projects. "prompt" shows a selection UI. "cancel" aborts. Default: "prompt".',
+    })
+  ),
 });
 
 export type DelegateParams = Static<typeof DelegateParamsSchema>;
@@ -120,6 +147,332 @@ export type DelegateParams = Static<typeof DelegateParamsSchema>;
 // ---------------------------------------------------------------------------
 // Helpers (exported for testing)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// ADK agent resolution types and helpers (Phase 2)
+// ---------------------------------------------------------------------------
+
+/** Resolved ADK agent metadata — matches DiscoveredAgent from pi-google-adk. */
+export interface ResolvedAdkAgent {
+  name: string;
+  project_path: string;
+  template: string | null;
+  capabilities: string[];
+  label: string;
+  source: "manifest" | "heuristic";
+}
+
+/**
+ * Structured resolution status (Phase 3).
+ *
+ * - found: unique match resolved
+ * - ambiguous: multiple matches, needs disambiguation
+ * - not_found: no matching agent discovered
+ * - provider_unavailable: pi-google-adk not loaded or resolve_adk_agent not registered
+ * - execution_unavailable: resolution works but run_adk_agent not registered
+ * - interactive_selection_required: disambiguation needed but no interactive UI available
+ */
+export type AdkResolutionStatus =
+  | "found"
+  | "ambiguous"
+  | "not_found"
+  | "provider_unavailable"
+  | "execution_unavailable"
+  | "interactive_selection_required";
+
+/** Result of the ADK agent resolution + prompt flow (Phase 3 structured). */
+export interface AdkResolutionResult {
+  status: AdkResolutionStatus;
+  resolved: boolean;
+  agent?: ResolvedAdkAgent;
+  cancelled?: boolean;
+  error?: string;
+  /** Requested agent name/path for programmatic handling. */
+  requestedAgent?: string;
+  /** Available matches for programmatic handling. */
+  availableMatches?: ResolvedAdkAgent[];
+  /** Whether interactive UI was available at decision time. */
+  uiAvailable?: boolean;
+}
+
+/**
+ * Attempt to resolve an ADK agent by name/path using the safe tool registry.
+ *
+ * Calls resolve_adk_agent if registered, otherwise returns provider_unavailable.
+ * This keeps pi-subagents generic: it delegates discovery to pi-google-adk
+ * rather than importing ADK-specific logic.
+ */
+export async function resolveAdkAgentViaTool(
+  safeToolRegistry: Map<string, ToolDefinition>,
+  cwd: string,
+  query: string
+): Promise<{
+  status: "found" | "not_found" | "ambiguous" | "provider_unavailable";
+  agent?: ResolvedAdkAgent;
+  matches?: ResolvedAdkAgent[];
+  available: ResolvedAdkAgent[];
+}> {
+  const resolveTool = safeToolRegistry.get("resolve_adk_agent");
+  if (!resolveTool) {
+    // pi-google-adk not loaded — provider unavailable, not "not found"
+    return { status: "provider_unavailable", available: [] };
+  }
+
+  const result = await resolveTool.execute(
+    "internal-resolve",
+    { query },
+    undefined,
+    undefined,
+    { cwd } as never
+  );
+
+  // Parse the JSON result from the tool
+  const content = result?.content;
+  if (!Array.isArray(content) || content.length === 0) {
+    return { status: "not_found", available: [] };
+  }
+
+  const textPart = content.find((c: { type: string }) => c.type === "text") as
+    | { type: "text"; text: string }
+    | undefined;
+  if (!textPart) {
+    return { status: "not_found", available: [] };
+  }
+
+  try {
+    return JSON.parse(textPart.text);
+  } catch {
+    return { status: "not_found", available: [] };
+  }
+}
+
+/**
+ * Check whether run_adk_agent is available for execution.
+ * Separate from resolution: you can resolve an agent but not execute it
+ * if run_adk_agent is not registered.
+ */
+export function checkAdkExecutionAvailable(
+  safeToolRegistry: Map<string, ToolDefinition>
+): boolean {
+  return safeToolRegistry.has("run_adk_agent");
+}
+
+/**
+ * Check whether interactive UI is available for agent selection.
+ * Exported for testability.
+ */
+export function isInteractiveUIAvailable(
+  ctx: { ui?: { select?: unknown }; hasUI?: boolean }
+): boolean {
+  return !!(ctx.hasUI && ctx.ui && typeof ctx.ui.select === "function");
+}
+
+/**
+ * Run the prompt-or-cancel UX for agent selection.
+ *
+ * Uses ctx.ui.select when available (TUI context).
+ * When no interactive UI is available, returns a structured
+ * interactive_selection_required result instead of silently degrading.
+ */
+export async function promptAgentSelection(
+  ctx: { ui: { select: (title: string, options: string[]) => Promise<string | undefined>; notify: (msg: string, level: string) => void }; hasUI: boolean },
+  agents: ResolvedAdkAgent[],
+  title: string,
+  requestedAgent?: string
+): Promise<AdkResolutionResult> {
+  if (agents.length === 0) {
+    return {
+      status: "not_found",
+      resolved: false,
+      cancelled: true,
+      error: "No ADK agents available.",
+      requestedAgent,
+      availableMatches: [],
+      uiAvailable: isInteractiveUIAvailable(ctx),
+    };
+  }
+
+  // Check for interactive UI availability BEFORE attempting select
+  if (!isInteractiveUIAvailable(ctx)) {
+    return {
+      status: "interactive_selection_required",
+      resolved: false,
+      cancelled: false,
+      error:
+        "Interactive agent selection is required but no UI is available. " +
+        "Provide an exact agent name, use onMissingAgent/onAmbiguousAgent: 'cancel', " +
+        "or run in an interactive TUI session.",
+      requestedAgent,
+      availableMatches: agents,
+      uiAvailable: false,
+    };
+  }
+
+  // Build selection options — each agent's label, plus a cancel option
+  const options = agents.map((a) => a.label);
+  options.push("Cancel");
+
+  const choice = await ctx.ui.select(title, options);
+
+  if (!choice || choice === "Cancel") {
+    return {
+      status: "not_found",
+      resolved: false,
+      cancelled: true,
+      requestedAgent,
+      uiAvailable: true,
+    };
+  }
+
+  const selected = agents.find((a) => a.label === choice);
+  if (!selected) {
+    return {
+      status: "not_found",
+      resolved: false,
+      cancelled: true,
+      error: "Selection did not match any agent.",
+      requestedAgent,
+      uiAvailable: true,
+    };
+  }
+
+  return { status: "found", resolved: true, agent: selected, uiAvailable: true };
+}
+
+/**
+ * Full ADK agent resolution flow: resolve → check provider → prompt if needed → check execution → return result.
+ */
+export async function resolveAdkAgentWithPrompt(
+  safeToolRegistry: Map<string, ToolDefinition>,
+  cwd: string,
+  query: string,
+  onMissing: "prompt" | "cancel",
+  onAmbiguous: "prompt" | "cancel",
+  ctx: { ui: { select: (title: string, options: string[]) => Promise<string | undefined>; notify: (msg: string, level: string) => void }; hasUI: boolean }
+): Promise<AdkResolutionResult> {
+  const resolution = await resolveAdkAgentViaTool(safeToolRegistry, cwd, query);
+
+  // Phase 3 (A): Provider unavailable — explicit first-class state
+  if (resolution.status === "provider_unavailable") {
+    return {
+      status: "provider_unavailable",
+      resolved: false,
+      cancelled: true,
+      error:
+        "ADK agent resolution is unavailable because pi-google-adk is not loaded. " +
+        "Install and enable pi-google-adk to use ADK agent delegation.",
+      requestedAgent: query,
+      availableMatches: [],
+      uiAvailable: isInteractiveUIAvailable(ctx),
+    };
+  }
+
+  if (resolution.status === "found" && resolution.agent) {
+    // Phase 3 (A): Check execution availability after resolution
+    if (!checkAdkExecutionAvailable(safeToolRegistry)) {
+      return {
+        status: "execution_unavailable",
+        resolved: false,
+        cancelled: true,
+        agent: resolution.agent,
+        error:
+          `ADK agent "${resolution.agent.name}" was resolved, but execution is unavailable ` +
+          "because run_adk_agent is not registered. pi-google-adk may be partially loaded.",
+        requestedAgent: query,
+        uiAvailable: isInteractiveUIAvailable(ctx),
+      };
+    }
+    return {
+      status: "found",
+      resolved: true,
+      agent: resolution.agent,
+      requestedAgent: query,
+      uiAvailable: isInteractiveUIAvailable(ctx),
+    };
+  }
+
+  if (resolution.status === "not_found") {
+    if (onMissing === "cancel") {
+      const names = resolution.available.map((a) => a.name).join(", ") || "none";
+      return {
+        status: "not_found",
+        resolved: false,
+        cancelled: true,
+        error: `ADK agent "${query}" not found. Available: ${names}`,
+        requestedAgent: query,
+        availableMatches: resolution.available,
+        uiAvailable: isInteractiveUIAvailable(ctx),
+      };
+    }
+    // prompt
+    const promptResult = await promptAgentSelection(
+      ctx,
+      resolution.available,
+      `Agent "${query}" not found. Choose an ADK agent:`,
+      query
+    );
+    // If resolved via prompt, still check execution availability
+    if (promptResult.resolved && promptResult.agent && !checkAdkExecutionAvailable(safeToolRegistry)) {
+      return {
+        status: "execution_unavailable",
+        resolved: false,
+        cancelled: true,
+        agent: promptResult.agent,
+        error:
+          `ADK agent "${promptResult.agent.name}" was selected, but execution is unavailable ` +
+          "because run_adk_agent is not registered.",
+        requestedAgent: query,
+        uiAvailable: true,
+      };
+    }
+    return promptResult;
+  }
+
+  if (resolution.status === "ambiguous") {
+    if (onAmbiguous === "cancel") {
+      const names = (resolution.matches ?? []).map((a) => a.name).join(", ");
+      return {
+        status: "ambiguous",
+        resolved: false,
+        cancelled: true,
+        error: `ADK agent "${query}" is ambiguous. Matches: ${names}`,
+        requestedAgent: query,
+        availableMatches: resolution.matches ?? resolution.available,
+        uiAvailable: isInteractiveUIAvailable(ctx),
+      };
+    }
+    // prompt from matches
+    const promptResult = await promptAgentSelection(
+      ctx,
+      resolution.matches ?? resolution.available,
+      `Agent "${query}" matches multiple projects. Choose one:`,
+      query
+    );
+    // If resolved via prompt, still check execution availability
+    if (promptResult.resolved && promptResult.agent && !checkAdkExecutionAvailable(safeToolRegistry)) {
+      return {
+        status: "execution_unavailable",
+        resolved: false,
+        cancelled: true,
+        agent: promptResult.agent,
+        error:
+          `ADK agent "${promptResult.agent.name}" was selected, but execution is unavailable ` +
+          "because run_adk_agent is not registered.",
+        requestedAgent: query,
+        uiAvailable: true,
+      };
+    }
+    return promptResult;
+  }
+
+  return {
+    status: "not_found",
+    resolved: false,
+    cancelled: true,
+    error: "Unexpected resolution state.",
+    requestedAgent: query,
+  };
+}
 
 /** Build the child system prompt with explicit behavioral constraints. */
 export function buildChildSystemPrompt(params: DelegateParams): string {
@@ -153,6 +506,42 @@ export function buildChildSystemPrompt(params: DelegateParams): string {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/**
+ * Build an ADK-augmented child system prompt.
+ *
+ * When an ADK agent is resolved, the child needs instructions to use
+ * run_adk_agent with the correct project path. This wraps the base
+ * prompt with that context.
+ */
+export function buildAdkChildSystemPrompt(
+  params: DelegateParams,
+  agent: ResolvedAdkAgent
+): string {
+  const base = buildChildSystemPrompt(params);
+
+  const adkSection = [
+    "",
+    "--- ADK Agent Delegation ---",
+    `You have access to the run_adk_agent tool.`,
+    `Use it to delegate work to the ADK agent "${agent.name}" at project path: ${agent.project_path}`,
+    `Template: ${agent.template ?? "unknown"}`,
+    agent.capabilities.length > 0
+      ? `Capabilities: ${agent.capabilities.join(", ")}`
+      : "",
+    "",
+    "To execute the task, call run_adk_agent with:",
+    `  project_path: "${agent.project_path}"`,
+    `  prompt: <your prompt for the ADK agent>`,
+    "",
+    "Pass the full task as the prompt. The ADK agent runs in a separate Python process.",
+    "--- End ADK Agent Delegation ---",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return base + "\n" + adkSection;
 }
 
 /**
@@ -215,6 +604,21 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
     safeToolRegistry.set(tool.name, tool);
   };
 
+  // --- Drain pending safe tools registered before pi-subagents loaded ---
+  // Other extensions (e.g. pi-google-adk) may push tools into
+  // __piSubagents_pendingSafeTools if they load before this extension.
+  const g = globalThis as Record<string, unknown>;
+  const PENDING_KEY = "__piSubagents_pendingSafeTools";
+  if (Array.isArray(g[PENDING_KEY])) {
+    for (const tool of g[PENDING_KEY] as ToolDefinition[]) {
+      if (tool.name !== "delegate_to_subagent") {
+        safeToolRegistry.set(tool.name, tool);
+      }
+    }
+    // Clear the pending array now that we've drained it
+    g[PENDING_KEY] = [];
+  }
+
   pi.registerTool<typeof DelegateParamsSchema>({
     name: "delegate_to_subagent",
     label: "Delegate to Subagent",
@@ -229,6 +633,7 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
       "Prefer read_only mode unless the child needs to modify files.",
       "Always provide a clear task description and success criteria.",
       "List only the custom tools the child actually needs in safeCustomTools.",
+      'To delegate to a specific ADK agent, pass agent: "<name>". run_adk_agent is auto-allowlisted.',
     ],
     parameters: DelegateParamsSchema,
 
@@ -256,19 +661,80 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
       const mode = params.mode ?? "read_only";
       const outputStyle = params.outputStyle ?? "summary";
 
+      // -----------------------------------------------------------------
+      // Phase 2: ADK agent resolution
+      // -----------------------------------------------------------------
+      let resolvedAdkAgent: ResolvedAdkAgent | undefined;
+
+      if (params.agent) {
+        const onMissing = params.onMissingAgent ?? "prompt";
+        const onAmbiguous = params.onAmbiguousAgent ?? "prompt";
+
+        const adkResult = await resolveAdkAgentWithPrompt(
+          safeToolRegistry,
+          ctx.cwd,
+          params.agent,
+          onMissing,
+          onAmbiguous,
+          ctx as { ui: { select: (title: string, options: string[]) => Promise<string | undefined>; notify: (msg: string, level: string) => void }; hasUI: boolean }
+        );
+
+        if (!adkResult.resolved || !adkResult.agent) {
+          // Phase 3: structured error messages by status
+          let errorMsg: string;
+          switch (adkResult.status) {
+            case "provider_unavailable":
+              errorMsg = adkResult.error ?? "ADK agent resolution is unavailable because pi-google-adk is not loaded.";
+              break;
+            case "execution_unavailable":
+              errorMsg = adkResult.error ?? "ADK agent execution is unavailable because run_adk_agent is not registered.";
+              break;
+            case "interactive_selection_required":
+              errorMsg = adkResult.error ?? "Interactive agent selection is required but no UI is available.";
+              if (adkResult.availableMatches && adkResult.availableMatches.length > 0) {
+                errorMsg += ` Available agents: ${adkResult.availableMatches.map(a => a.name).join(", ")}`;
+              }
+              break;
+            case "ambiguous":
+              errorMsg = adkResult.error ?? `ADK agent "${params.agent}" is ambiguous.`;
+              break;
+            case "not_found":
+              errorMsg = adkResult.error ?? `ADK agent "${params.agent}" not found.`;
+              break;
+            default:
+              errorMsg = adkResult.cancelled
+                ? adkResult.error ?? "ADK agent selection was cancelled."
+                : adkResult.error ?? "Failed to resolve ADK agent.";
+          }
+          return {
+            content: [{ type: "text", text: errorMsg }],
+            details: { childMessages: 0 },
+          };
+        }
+
+        resolvedAdkAgent = adkResult.agent;
+      }
+
       // Select built-in tools based on mode.
       const builtinTools = mode === "coding" ? codingTools : readOnlyTools;
 
       // Resolve allowed custom tools for the child.
-      const allowedNames = params.safeCustomTools ?? [];
+      // When an ADK agent is resolved, ensure run_adk_agent is allowlisted.
+      // Phase 3: use a deduped Set to avoid mutation and duplicates.
+      const allowedSet = new Set(params.safeCustomTools ?? []);
+      if (resolvedAdkAgent) {
+        allowedSet.add("run_adk_agent");
+      }
       const childCustomTools = resolveAllowedCustomTools(
         [], // not used in current implementation
         Array.from(safeToolRegistry.values()),
-        allowedNames
+        Array.from(allowedSet)
       );
 
-      // Build child system prompt.
-      const childSystemPrompt = buildChildSystemPrompt(params);
+      // Build child system prompt (ADK-augmented if applicable).
+      const childSystemPrompt = resolvedAdkAgent
+        ? buildAdkChildSystemPrompt(params, resolvedAdkAgent)
+        : buildChildSystemPrompt(params);
 
       // Resolve model: use override if provided, else fall back to parent model.
       let childModel = ctx.model;
