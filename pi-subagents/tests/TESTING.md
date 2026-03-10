@@ -56,7 +56,7 @@ Proves actual tool use vs bluffing through hidden canary/nonce patterns.
 | `trap-positive.test.ts` | Tool was called, result contains exact canary from child, derived canary works, decoy vs real canary distinguished, multiple runs with fresh nonces each produce unique results |
 | `trap-negative.test.ts` | Tool absent/blocked/failed: no canary fabricated, error reported honestly, decoy in task not echoed as answer, empty child output reported truthfully |
 
-### 7. Smoke Tests (`tests/smoke/`)
+### 5. Smoke Tests (`tests/smoke/`)
 
 Extension discovery and loading verification through the real pi loader.
 
@@ -113,7 +113,7 @@ A self-check guard in the smoke test file verifies at module load time that no d
 - Without the tool, the answer cannot be correct
 - Derived canary results make accidental pass impossible
 
-### 5. Parallel Subagent Tests
+### 6. Parallel Subagent Tests
 
 Tests for concurrent and sequential multi-child execution, isolation, and honest concurrency classification.
 
@@ -164,7 +164,7 @@ Each test generates a fresh nonce and derives a canary via a non-trivial transfo
 
 Without actual tool invocation, the derived canary cannot appear in the output.
 
-### 6. Real-LLM Veracity Tests (`tests/llm/`)
+### 7. Real-LLM Veracity Tests (`tests/llm/`)
 
 End-to-end tests that run against a live Anthropic model (claude-haiku-4-5).
 

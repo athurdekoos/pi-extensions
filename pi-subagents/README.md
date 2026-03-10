@@ -154,18 +154,19 @@ The LLM may call:
 
 ## Testing
 
-The extension has a 5-layer test suite. See [tests/TESTING.md](tests/TESTING.md) for full details.
+The extension has a 7-layer test suite with 118 tests. See [tests/TESTING.md](tests/TESTING.md) for full details.
 
 ### Running tests
 
 ```bash
-npm test              # fast tests only (79 tests, ~3s)
-npm run test:all      # all tests including real-LLM (84 tests, ~17s)
+npm test              # fast tests only (113 tests, ~4s)
+npm run test:all      # all tests including real-LLM (118 tests, ~17s)
 npm run test:llm      # real-LLM veracity tests only (5 tests, ~15s)
 npm run test:unit     # unit tests
 npm run test:extension # extension-level tests
 npm run test:integration # integration tests
 npm run test:veracity # mock veracity traps
+npm run test:smoke    # extension discovery/loading smoke tests
 ```
 
 ### Test layers
@@ -174,8 +175,9 @@ npm run test:veracity # mock veracity traps
 |---|---|---|---|
 | Unit | `tests/unit/` | 36 | Child prompt construction, tool allowlist resolution, recursion guard logic, parameter schema |
 | Extension | `tests/extension/` | 18 | Tool registration in parent/child mode, execute behavior with mocked sessions, streaming, disposal, error reporting |
-| Integration | `tests/integration/` | 10 | Real SDK wiring: `DefaultResourceLoader`, `SessionManager`, built-in tool sets, child tool surface |
-| Veracity (mock) | `tests/veracity/` | 15 | Canary-based proof that tool results flow through correctly and are not fabricated on failure |
+| Integration | `tests/integration/` | 21 | Real SDK wiring: `DefaultResourceLoader`, `SessionManager`, built-in tool sets, child tool surface, parallel subagent execution, concurrency classification, isolation |
+| Veracity (mock) | `tests/veracity/` | 23 | Canary-based proof that tool results flow through correctly and are not fabricated; parallel partial-failure honesty; derived canary traps |
+| Smoke | `tests/smoke/` | 15 | Real pi loader discovers and loads the extension from configured paths, `.pi/extensions/` symlinks, and `pi.extensions` manifest; tool absent when extension not on path; tool metadata and schema correct after real loading |
 | Veracity (LLM) | `tests/llm/` | 5 | Real model inference with SHA-256-derived canaries, decoy detection, honest failure reporting |
 
 ### Veracity trap tests
