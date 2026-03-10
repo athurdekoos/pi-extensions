@@ -1,18 +1,29 @@
 {
   "name": "pi-google-adk",
   "version": "0.1.0",
+  "description": "Pi extension for scaffolding Python-first Google ADK agent projects",
   "type": "module",
-  "keywords": ["pi-package"],
+  "license": "MIT",
+  "keywords": ["pi-package", "google-adk", "agent", "scaffolding"],
+  "files": ["src", "scripts", "README.md", "CHANGELOG.md"],
   "dependencies": {
     "@mariozechner/pi-coding-agent": "latest",
     "@sinclair/typebox": "latest"
   },
   "devDependencies": {
-    "typescript": "latest"
+    "typescript": "latest",
+    "vitest": "latest"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "verify": "tsc --noEmit && npx tsx scripts/verify.ts"
+    "verify": "tsc --noEmit && npx tsx scripts/verify.ts",
+    "test": "vitest run --exclude 'tests/llm/**'",
+    "test:all": "vitest run",
+    "test:unit": "vitest run tests/unit/",
+    "test:extension": "vitest run tests/extension/",
+    "test:integration": "vitest run tests/integration/",
+    "test:veracity": "vitest run tests/veracity/",
+    "test:watch": "vitest"
   },
   "pi": {
     "extensions": ["./src/index.ts"]
