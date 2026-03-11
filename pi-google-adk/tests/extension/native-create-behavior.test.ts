@@ -6,7 +6,8 @@
  * - create_adk_agent with mode=native_config runs capability detection
  * - Invalid names are rejected before any CLI call
  * - Path traversal is rejected
- * - Legacy modes still work via template param
+ * - Legacy modes are rejected with migration guidance
+ * - Deprecated template param is rejected with migration guidance
  * - Default mode is native_app when no mode or template specified
  *
  * Note: These tests run without `adk` on PATH so native creation
@@ -118,7 +119,7 @@ describe("create_adk_agent mode parameter", () => {
     expect((parsed.error as string).toLowerCase()).toMatch(/adk|not installed|not on.*path|not found|not available/i);
   });
 
-  it("legacy_basic mode still works", async () => {
+  it("legacy_basic mode is rejected with migration guidance", async () => {
     const result = await createTool.execute(
       "test-legacy",
       { name: "legacy_agent", mode: "legacy_basic", path: "./legacy_proj" },
@@ -127,12 +128,12 @@ describe("create_adk_agent mode parameter", () => {
       ctx()
     );
     const parsed = parseResult(result);
-    expect(parsed.ok).toBe(true);
-    expect(parsed.mode).toBe("legacy_basic");
-    expect(parsed.template).toBe("basic");
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("no longer supported");
+    expect(parsed.error).toContain("native_app");
   });
 
-  it("template param maps to legacy mode", async () => {
+  it("template param is rejected with migration guidance", async () => {
     const result = await createTool.execute(
       "test-template-compat",
       { name: "compat_agent", template: "mcp", path: "./compat_proj" },
@@ -141,12 +142,12 @@ describe("create_adk_agent mode parameter", () => {
       ctx()
     );
     const parsed = parseResult(result);
-    expect(parsed.ok).toBe(true);
-    expect(parsed.mode).toBe("legacy_mcp");
-    expect(parsed.template).toBe("mcp");
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("no longer supported");
+    expect(parsed.error).toContain("native_app");
   });
 
-  it("mode param wins over template param", async () => {
+  it("legacy mode is rejected even when template is also set", async () => {
     const result = await createTool.execute(
       "test-mode-wins",
       { name: "mode_agent", mode: "legacy_sequential", template: "basic", path: "./mode_proj" },
@@ -155,8 +156,8 @@ describe("create_adk_agent mode parameter", () => {
       ctx()
     );
     const parsed = parseResult(result);
-    expect(parsed.ok).toBe(true);
-    expect(parsed.mode).toBe("legacy_sequential");
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("no longer supported");
   });
 });
 

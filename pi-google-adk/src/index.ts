@@ -3,7 +3,7 @@
  * and running Google ADK agent projects.
  *
  * Registers six tools:
- * - create_adk_agent:        Create a new ADK project (native CLI, official sample, or legacy template)
+ * - create_adk_agent:        Create a new ADK project (native CLI or official sample import)
  * - add_adk_capability:      Add capabilities to an existing ADK project
  * - run_adk_agent:           Execute an on-disk ADK project and return its output
  * - list_adk_agents:         Discover all ADK projects in the workspace

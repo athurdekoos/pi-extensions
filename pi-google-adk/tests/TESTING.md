@@ -13,7 +13,6 @@ Fast, isolated tests for pure logic and helpers. No filesystem side effects beyo
 | `scaffold-manifest.test.ts` | Manifest create/serialize/read round-trip, capability tracking, idempotency |
 | `project-detect.test.ts` | Project detection from manifest, heuristic fallback, malformed data |
 | `adk-docs-mcp.test.ts` | MCP config JSON validity, server name, command, and URL |
-| `templates.test.ts` | Template rendering correctness, no unresolved JS vars, correct imports |
 
 ### Layer 2 — Extension tests (`tests/extension/`)
 
@@ -22,7 +21,8 @@ Tests that register the extension via mock API and exercise tool behavior.
 | File | Behavior protected |
 |------|-------------------|
 | `registration.test.ts` | All 6 tools registered, correct names/labels/descriptions, schema required fields |
-| `tool-behavior.test.ts` | create_adk_agent happy path (all 3 templates), invalid name rejection, path traversal rejection, overwrite protection; add_adk_capability path traversal and non-project rejection |
+| `tool-behavior.test.ts` | create_adk_agent deprecated template rejection with migration errors, invalid name rejection, path traversal rejection; add_adk_capability path traversal and non-project rejection |
+| `legacy-migration-errors.test.ts` | All legacy modes rejected with migration guidance, all deprecated templates rejected, error quality (mentions supported modes, specific input), schema contract (mode enum, removed params), regression guards for supported modes |
 
 ### Layer 3 — Integration tests (`tests/integration/`)
 
@@ -62,7 +62,6 @@ npm run test:watch
 - Pure functions produce correct outputs for valid, invalid, and edge-case inputs.
 - Path traversal is blocked deterministically.
 - Manifests serialize and deserialize correctly.
-- Templates produce structurally valid Python patterns.
 
 ### Extension tests
 - The extension registers exactly the expected tools with correct schemas.

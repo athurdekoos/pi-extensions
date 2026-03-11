@@ -3,16 +3,16 @@
  *
  * Creates a new Google ADK agent project.
  *
- * Primary modes (Phase 1 — native creation via installed ADK CLI):
- *   - native_app:    `adk create APP_NAME`
- *   - native_config: `adk create --type=config APP_NAME`
- *
- * Phase 2 — sample import:
+ * Supported modes:
+ *   - native_app:      `adk create APP_NAME` (default)
+ *   - native_config:   `adk create --type=config APP_NAME`
  *   - official_sample: import from google/adk-samples
  *
- * Legacy modes (temporary compatibility path):
- *   - legacy_basic, legacy_mcp, legacy_sequential:
- *     Pi-owned template scaffolding (pre-native).
+ * Legacy Pi-owned scaffolding modes (legacy_basic, legacy_mcp,
+ * legacy_sequential) and the deprecated `template` parameter are no
+ * longer accepted as supported public inputs. Callers using those
+ * paths will receive a migration error with guidance on which
+ * supported mode to use instead.
  *
  * Interactive wizard:
  *   When UI is available and required params are missing, presents a
@@ -21,18 +21,11 @@
  * Default mode: native_app
  */
 
-import { resolve, relative } from "node:path";
 import { Type } from "@sinclair/typebox";
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { safeWriteFile, safeExists, safeReadFile, type WriteResult } from "../lib/fs-safe.js";
+import { safeWriteFile, safeReadFile } from "../lib/fs-safe.js";
 import { validateAgentName } from "../lib/validators.js";
-import { adkDocsMcpConfig } from "../lib/adk-docs-mcp.js";
-import { createManifest, serializeManifest, MANIFEST_FILENAME } from "../lib/scaffold-manifest.js";
-import { gitignore } from "../templates/shared.js";
-import * as basicTemplate from "../templates/python-basic/files.js";
-import * as mcpTemplate from "../templates/python-mcp/files.js";
-import * as sequentialTemplate from "../templates/python-sequential/files.js";
 import {
   createNativeAdkProject,
   type NativeCreateResult,
@@ -60,10 +53,12 @@ import { buildToolAccessSummary } from "../lib/tool-summary.js";
 
 const NATIVE_MODES = ["native_app", "native_config"] as const;
 const SAMPLE_MODES = ["official_sample"] as const;
-const LEGACY_MODES = ["legacy_basic", "legacy_mcp", "legacy_sequential"] as const;
-const ALL_MODES = [...NATIVE_MODES, ...SAMPLE_MODES, ...LEGACY_MODES] as const;
+const SUPPORTED_MODES = [...NATIVE_MODES, ...SAMPLE_MODES] as const;
 
-type CreateMode = (typeof ALL_MODES)[number];
+/** Legacy modes — recognized only to produce migration errors. */
+const LEGACY_MODES = ["legacy_basic", "legacy_mcp", "legacy_sequential"] as const;
+
+type SupportedMode = (typeof SUPPORTED_MODES)[number];
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -76,25 +71,16 @@ export const CreateAdkAgentParams = Type.Object({
     })
   ),
   mode: Type.Optional(
-    StringEnum([...ALL_MODES] as unknown as string[], {
+    StringEnum([...SUPPORTED_MODES] as unknown as string[], {
       description:
         'Creation mode. Native modes use the installed ADK CLI. ' +
         '"native_app" (default): standard ADK app. ' +
         '"native_config": config-based ADK app (requires ADK CLI support). ' +
-        '"official_sample": import from google/adk-samples. ' +
-        '"legacy_basic", "legacy_mcp", "legacy_sequential": Pi-owned templates (deprecated).',
+        '"official_sample": import from google/adk-samples.',
     })
   ),
   path: Type.Optional(
     Type.String({ description: "Target path relative to cwd. Default: ./agents/<name>" })
-  ),
-  // Legacy compat: still accept `template` for old callers, mapped to legacy mode
-  template: Type.Optional(
-    StringEnum(["basic", "mcp", "sequential"] as const, {
-      description:
-        "DEPRECATED: Use mode instead. Legacy project template. " +
-        "If both mode and template are set, mode wins.",
-    })
   ),
   model: Type.Optional(
     Type.String({ description: "Gemini model to use. Default: gemini-2.5-flash" })
@@ -104,14 +90,6 @@ export const CreateAdkAgentParams = Type.Object({
     Type.String({
       description:
         "Sample slug from the curated catalog. Required for official_sample mode in non-interactive use.",
-    })
-  ),
-  install_adk_skills: Type.Optional(
-    Type.Boolean({ description: "Attempt to install ADK-related pi skills. Default: true" })
-  ),
-  add_adk_docs_mcp: Type.Optional(
-    Type.Boolean({
-      description: "Emit a project-local ADK docs MCP example config. Default: true (legacy modes only)",
     })
   ),
   overwrite: Type.Optional(
@@ -206,10 +184,8 @@ export function registerCreateAdkAgent(pi: ExtensionAPI): void {
     label: "Create ADK Agent",
     description:
       "Create a new Google ADK agent project. " +
-      "Primary: native modes use the installed ADK CLI (native_app, native_config). " +
-      "Import: official_sample imports from google/adk-samples. " +
-      "Legacy: Pi-owned templates (legacy_basic, legacy_mcp, legacy_sequential). " +
-      "Default mode: native_app. " +
+      "Supported modes: native_app (default, uses ADK CLI), native_config (config-based, uses ADK CLI), " +
+      "official_sample (import from google/adk-samples). " +
       "When UI is available and params are incomplete, presents an interactive wizard.",
     parameters: CreateAdkAgentParams,
 
@@ -224,6 +200,15 @@ export function registerCreateAdkAgent(pi: ExtensionAPI): void {
         return executeWizard(ui, params);
       }
 
+      // ── Reject legacy modes and deprecated template param ───────────
+      // `template` was removed from the public schema but old callers may
+      // still send it.  Probe the raw input without widening the typed API.
+      const rawTemplate = (params as Record<string, unknown>).template as string | undefined;
+      const legacyError = checkLegacyUsage(params.mode, rawTemplate);
+      if (legacyError) {
+        return errorResult(legacyError, params.mode ?? rawTemplate ?? "");
+      }
+
       // Non-interactive: require name
       if (!params.name) {
         return errorResult(
@@ -234,8 +219,8 @@ export function registerCreateAdkAgent(pi: ExtensionAPI): void {
 
       const name: string = params.name;
 
-      // Resolve effective mode
-      const mode = resolveMode(params.mode, params.template);
+      // Resolve effective mode (only supported modes reach here)
+      const mode = resolveMode(params.mode);
 
       const model = params.model ?? "gemini-2.5-flash";
       const overwrite = params.overwrite ?? false;
@@ -258,8 +243,8 @@ export function registerCreateAdkAgent(pi: ExtensionAPI): void {
         return executeNativeCreate(name, mode, params, model, overwrite, toolPlan);
       }
 
-      // Legacy path
-      return executeLegacyCreate(name, mode, params, model, overwrite);
+      // Should not be reachable — all supported modes are dispatched above
+      return errorResult(`Unsupported mode: ${mode}`, mode);
     },
   });
 }
@@ -308,28 +293,69 @@ async function executeWizard(
 }
 
 // ---------------------------------------------------------------------------
-// Mode resolution
+// Legacy usage detection — produces migration errors
+// ---------------------------------------------------------------------------
+
+const LEGACY_TEMPLATE_MIGRATION: Record<string, string> = {
+  basic: "Use mode=native_app instead.",
+  mcp: "Use mode=native_app and add_adk_capability with mcp_toolset, or use tool planning.",
+  sequential: "Use mode=native_app or mode=official_sample depending on your goal.",
+};
+
+const LEGACY_MODE_MIGRATION: Record<string, string> = {
+  legacy_basic: "Use mode=native_app instead.",
+  legacy_mcp: "Use mode=native_app and add_adk_capability with mcp_toolset, or use tool planning.",
+  legacy_sequential: "Use mode=native_app or mode=official_sample depending on your goal.",
+};
+
+/**
+ * Check for legacy mode or deprecated template usage.
+ * Returns a migration error message if legacy usage is detected, or null if OK.
+ */
+function checkLegacyUsage(
+  mode: string | undefined,
+  template: string | undefined
+): string | null {
+  // Check for legacy mode values
+  if (mode && mode in LEGACY_MODE_MIGRATION) {
+    return (
+      `mode=${mode} is no longer supported. ` +
+      `Pi-owned scaffolding modes have been removed from the public API. ` +
+      `Supported modes: native_app, native_config, official_sample. ` +
+      LEGACY_MODE_MIGRATION[mode]
+    );
+  }
+
+  // Check for deprecated template param
+  if (template && template in LEGACY_TEMPLATE_MIGRATION) {
+    return (
+      `template=${template} is no longer supported. ` +
+      `The old Pi-owned scaffolding path has been removed from the public API. ` +
+      `Supported modes: native_app, native_config, official_sample. ` +
+      LEGACY_TEMPLATE_MIGRATION[template]
+    );
+  }
+
+  // Check for unknown template values
+  if (template) {
+    return (
+      `template parameter is no longer supported. ` +
+      `Use mode=native_app, mode=native_config, or mode=official_sample instead.`
+    );
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Mode resolution (supported modes only)
 // ---------------------------------------------------------------------------
 
 function resolveMode(
-  explicitMode: string | undefined,
-  legacyTemplate: string | undefined
-): CreateMode {
-  // Explicit mode always wins
-  if (explicitMode && ALL_MODES.includes(explicitMode as CreateMode)) {
-    return explicitMode as CreateMode;
-  }
-
-  // Legacy template param maps to legacy mode
-  if (legacyTemplate) {
-    switch (legacyTemplate) {
-      case "basic":
-        return "legacy_basic";
-      case "mcp":
-        return "legacy_mcp";
-      case "sequential":
-        return "legacy_sequential";
-    }
+  explicitMode: string | undefined
+): SupportedMode {
+  if (explicitMode && (SUPPORTED_MODES as readonly string[]).includes(explicitMode)) {
+    return explicitMode as SupportedMode;
   }
 
   // Default: native_app
@@ -512,198 +538,6 @@ async function executeNativeCreate(
     content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
     details: result,
   };
-}
-
-// ---------------------------------------------------------------------------
-// Legacy creation path (temporary compatibility)
-// ---------------------------------------------------------------------------
-
-async function executeLegacyCreate(
-  name: string,
-  mode: CreateMode,
-  params: Record<string, unknown>,
-  model: string,
-  overwrite: boolean
-): Promise<ReturnType<typeof errorResult>> {
-  const template = mode.replace("legacy_", "") as "basic" | "mcp" | "sequential";
-  const addDocsMcp = (params.add_adk_docs_mcp as boolean) ?? true;
-  const installSkills = (params.install_adk_skills as boolean) ?? true;
-  const targetPath = (params.path as string) ?? `./agents/${name}`;
-  const cwd = process.cwd();
-
-  // Validate target path stays within workspace
-  const pathError = validateTargetPath(cwd, targetPath);
-  if (pathError) {
-    return errorResult(pathError, mode);
-  }
-
-  // Guard: check if target exists and overwrite is false
-  if (safeExists(cwd, targetPath) && !overwrite) {
-    const marker = safeExists(cwd, `${targetPath}/${MANIFEST_FILENAME}`);
-    if (marker) {
-      return errorResult(
-        `Target path "${targetPath}" already contains an ADK project. Use overwrite: true to replace.`,
-        mode
-      );
-    }
-  }
-
-  const results: WriteResult[] = [];
-  const vars = { name, model };
-
-  try {
-    switch (template) {
-      case "basic":
-        results.push(...scaffoldBasic(cwd, targetPath, vars, overwrite));
-        break;
-      case "mcp":
-        results.push(...scaffoldMcp(cwd, targetPath, vars, overwrite));
-        break;
-      case "sequential":
-        results.push(...scaffoldSequential(cwd, targetPath, vars, overwrite));
-        break;
-      default:
-        return errorResult(`Unknown template: ${template}`, mode);
-    }
-
-    // .gitignore
-    results.push(
-      safeWriteFile(cwd, `${targetPath}/.gitignore`, gitignore(), overwrite)
-    );
-
-    // ADK docs MCP example
-    if (addDocsMcp) {
-      results.push(
-        safeWriteFile(
-          cwd,
-          `${targetPath}/.pi/mcp/adk-docs.example.json`,
-          adkDocsMcpConfig(),
-          overwrite
-        )
-      );
-    }
-
-    // Scaffold manifest
-    const manifest = createManifest(name, template, model);
-    results.push(
-      safeWriteFile(
-        cwd,
-        `${targetPath}/${MANIFEST_FILENAME}`,
-        serializeManifest(manifest),
-        overwrite
-      )
-    );
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return errorResult(`Scaffold failed: ${msg}`, mode);
-  }
-
-  const created = results.filter((r) => r.created).map((r) => r.path);
-  const skipped = results
-    .filter((r) => r.skipped)
-    .map((r) => `${r.path} (${r.reason})`);
-
-  let skillsInstalled = false;
-  let skillsNote: string | undefined;
-  if (installSkills) {
-    skillsNote =
-      "ADK skills installation skipped: not available in this environment. " +
-      "You can manually install ADK-related pi skills if needed.";
-  }
-
-  const nextSteps = [
-    `cd ${targetPath}`,
-    "python -m venv .venv",
-    "source .venv/bin/activate",
-    "pip install google-adk",
-    "cp .env.example .env",
-    "# Set GOOGLE_API_KEY in .env",
-    `adk web .`,
-  ];
-
-  const result: CreateResult = {
-    ok: true,
-    path: targetPath,
-    mode,
-    template,
-    model,
-    files_created: created,
-    files_skipped: skipped,
-    adk_docs_mcp: addDocsMcp,
-    skills_installed: skillsInstalled,
-    skills_note: skillsNote,
-    next_steps: nextSteps,
-  };
-
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-    details: result,
-  };
-}
-
-// ── Path validation ───────────────────────────────────────────────────
-
-function validateTargetPath(cwd: string, targetPath: string): string | null {
-  const resolvedCwd = resolve(cwd);
-  const resolvedTarget = resolve(cwd, targetPath);
-  const rel = relative(resolvedCwd, resolvedTarget);
-  if (rel.startsWith("..")) {
-    return (
-      `project_path "${targetPath}" resolves outside the workspace root. ` +
-      `Resolved: ${resolvedTarget}. Workspace: ${resolvedCwd}. ` +
-      `Use a relative path within the current working directory.`
-    );
-  }
-  return null;
-}
-
-// ── Template scaffolders ──────────────────────────────────────────────
-
-function scaffoldBasic(
-  cwd: string,
-  base: string,
-  vars: { name: string; model: string },
-  overwrite: boolean
-): WriteResult[] {
-  const p = (f: string) => `${base}/${f}`;
-  return [
-    safeWriteFile(cwd, p(`${vars.name}/__init__.py`), basicTemplate.initPy(vars), overwrite),
-    safeWriteFile(cwd, p(`${vars.name}/agent.py`), basicTemplate.agentPy(vars), overwrite),
-    safeWriteFile(cwd, p(".env.example"), basicTemplate.envExample(), overwrite),
-    safeWriteFile(cwd, p("README.md"), basicTemplate.projectReadme(vars), overwrite),
-  ];
-}
-
-function scaffoldMcp(
-  cwd: string,
-  base: string,
-  vars: { name: string; model: string },
-  overwrite: boolean
-): WriteResult[] {
-  const p = (f: string) => `${base}/${f}`;
-  return [
-    safeWriteFile(cwd, p(`${vars.name}/__init__.py`), mcpTemplate.initPy(vars), overwrite),
-    safeWriteFile(cwd, p(`${vars.name}/agent.py`), mcpTemplate.agentPy(vars), overwrite),
-    safeWriteFile(cwd, p(`${vars.name}/mcp_config.py`), mcpTemplate.mcpConfigPy(vars), overwrite),
-    safeWriteFile(cwd, p(".env.example"), mcpTemplate.envExample(), overwrite),
-    safeWriteFile(cwd, p("README.md"), mcpTemplate.projectReadme(vars), overwrite),
-  ];
-}
-
-function scaffoldSequential(
-  cwd: string,
-  base: string,
-  vars: { name: string; model: string },
-  overwrite: boolean
-): WriteResult[] {
-  const p = (f: string) => `${base}/${f}`;
-  return [
-    safeWriteFile(cwd, p(`${vars.name}/__init__.py`), sequentialTemplate.initPy(vars), overwrite),
-    safeWriteFile(cwd, p(`${vars.name}/agent.py`), sequentialTemplate.agentPy(vars), overwrite),
-    safeWriteFile(cwd, p(`${vars.name}/steps.py`), sequentialTemplate.stepsPy(vars), overwrite),
-    safeWriteFile(cwd, p(".env.example"), sequentialTemplate.envExample(), overwrite),
-    safeWriteFile(cwd, p("README.md"), sequentialTemplate.projectReadme(vars), overwrite),
-  ];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────

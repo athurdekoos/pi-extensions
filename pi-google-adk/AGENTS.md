@@ -15,7 +15,7 @@ This file defines **local rules for this extension only**. If there is a conflic
 ## Extension Goal
 
 - Primary use case: create, import, discover, resolve, and run Python-first Google ADK agent projects locally. Detect drift on imported official samples.
-- Main user workflow: create ADK agents via `create_adk_agent` (native CLI, official sample import, or legacy template), add capabilities, discover with `list_adk_agents`, execute with `run_adk_agent`, check drift with `check_adk_sample_drift`. Cross-extension: pi-subagents delegates to named ADK agents via `resolve_adk_agent`.
+- Main user workflow: create ADK agents via `create_adk_agent` (native CLI or official sample import), add capabilities, discover with `list_adk_agents`, execute with `run_adk_agent`, check drift with `check_adk_sample_drift`. Cross-extension: pi-subagents delegates to named ADK agents via `resolve_adk_agent`.
 - Key Pi integration points: `registerTool` for 6 tools; `registerSafeToolForSubagents` for cross-extension integration via globalThis registry.
 - Required external tools or services: Python 3.10+, `google-adk` pip package, and a Google API key (all for the generated projects and `run_adk_agent`, not for the extension itself). `git` for official sample import.
 - Main safety considerations: path traversal prevention, overwrite protection, subprocess timeout enforcement, no global config writes.
@@ -55,7 +55,7 @@ pi-google-adk/
       sample-catalog.ts         # curated official sample catalog
       sample-drift.ts           # drift detection logic
       sample-import.ts          # git-based sample import
-      scaffold-manifest.ts      # .adk-scaffold.json manifest handling
+      scaffold-manifest.ts      # .adk-scaffold.json manifest reading (legacy compat only)
       temp-replay.ts            # temp replay file for adk run --replay
       tool-detect.ts            # extension tool detection
       tool-plan.ts              # tool plan model and builder
@@ -64,17 +64,12 @@ pi-google-adk/
       validators.ts             # input validation
       wizard.ts                 # interactive creation wizard
     tools/
-      create-adk-agent.ts       # create new projects (native, sample, legacy)
+      create-adk-agent.ts       # create new projects (native, sample)
       add-adk-capability.ts     # add capabilities to existing projects
       run-adk-agent.ts          # execute ADK agents
       list-adk-agents.ts        # discover agents in workspace
       resolve-adk-agent.ts      # resolve name/path to specific agent
       check-adk-sample-drift.ts # detect drift on imported samples
-    templates/
-      python-basic/files.ts
-      python-mcp/files.ts
-      python-sequential/files.ts
-      shared.ts
   scripts/
     verify.ts
   tests/
@@ -86,8 +81,8 @@ pi-google-adk/
 ```
 
 ## Local Coding Rules
-- Keep the extension focused on scaffolding, discovery, and execution of ADK projects.
-- All generated Python code must be template-driven, not AI-generated at runtime.
+- Keep the extension focused on creation, import, discovery, and execution of ADK projects.
+- All generated Python code comes from the ADK CLI or official samples, not AI-generated at runtime.
 - Path safety: all filesystem operations must use `safePath()` or `safeWriteFile()` to prevent traversal.
 - Subprocess safety: all `adk run` invocations must have a timeout.
 - Output parsing: always fall back safely to raw stdout if structured parsing fails.
@@ -104,7 +99,7 @@ pi-google-adk/
 6. Discovery scans `./agents/` only, one level deep. No recursive traversal.
 7. Resolution order: path first (if query contains `/` or starts with `.`), then exact name, case-insensitive, prefix. Ambiguity is never silently resolved.
 8. `registerSafeToolForSubagents` works regardless of load order relative to pi-subagents.
-9. Scaffold manifest is informational only; deleting it does not break the generated project.
+9. Scaffold manifest (`.adk-scaffold.json`) is read-only for legacy compatibility; deleting it does not break the project. No new manifests are created.
 
 ## Cross-Extension Integration
 
@@ -141,7 +136,7 @@ Document registered tools, commands, hooks, and widgets in `README.md`.
 
 ## Testing Rules
 
-360 automated tests across unit, extension, integration, and veracity layers.
+363 automated tests across unit, extension, integration, and veracity layers.
 
 ### Running
 
@@ -154,17 +149,17 @@ npm run verify        # typecheck + verification suite
 
 | Layer | Tests | Speed |
 |---|---|---|
-| Unit | 295 | fast |
-| Extension | 51 | fast |
+| Unit | 279 | fast |
+| Extension | 67 | fast |
 | Integration | 8 | fast |
-| Veracity | 10 | fast |
+| Veracity | 9 | fast |
 
 ### When to add tests
 
 - Any change to discovery or resolution: update `adk-discovery.test.ts`
 - Any change to output parsing: update `adk-runtime.test.ts`
 - Any change to safe tool registration: update `safe-tool-registration.test.ts`
-- Any change to scaffolding templates: update `templates.test.ts`
+- Legacy scaffold templates were removed in Phase B; no template tests needed
 - Any change to tool registration: verify `registration.test.ts` passes
 - Any change to sample catalog/import/drift: update relevant test files
 - Any change to tool planning/summary: update `tool-plan.test.ts`, `tool-summary.test.ts`
@@ -178,7 +173,7 @@ Before finishing work in this extension:
 4. verify no obvious unsafe shell interpolation or path handling bugs
 5. update `README.md` if behavior or setup changed
 6. update `CHANGELOG.md` for user-visible changes
-7. run `npm test` and verify all 360 tests pass
+7. run `npm test` and verify all 363 tests pass
 8. provide a concrete manual test path using Pi
 
 Preferred manual run path:
@@ -198,7 +193,7 @@ pi -e ./src/index.ts
 ## Definition of Done
 A change in this extension is done when:
 - behavior matches the request
-- `npm test` passes (360 tests)
+- `npm test` passes (363 tests)
 - new tests protect intended behavior
 - documentation is updated if needed
 - no obvious dead code or placeholder comments remain

@@ -184,16 +184,16 @@ Registers six tools for the full ADK agent lifecycle:
 
 | Tool | Purpose |
 |------|---------|
-| `create_adk_agent` | Create a new ADK project (native CLI, official sample import, or legacy template) |
+| `create_adk_agent` | Create a new ADK project (native CLI or official sample import) |
 | `add_adk_capability` | Add capabilities to an existing project |
 | `run_adk_agent` | Execute an on-disk ADK project via `adk run --replay` |
 | `list_adk_agents` | Discover all ADK projects under `./agents/` |
 | `resolve_adk_agent` | Resolve a name or path to a specific ADK project |
 | `check_adk_sample_drift` | Detect drift between an imported sample and its upstream source |
 
-Primary creation uses the installed ADK CLI (`adk create`). Official samples can be imported from `google/adk-samples`. Legacy Pi-owned templates remain as a compatibility path.
+Primary creation uses the installed ADK CLI (`adk create`). Official samples can be imported from `google/adk-samples`. Existing legacy projects on disk remain discoverable and runnable, but new legacy scaffold generation has been removed.
 
-360 automated tests. Requires `@mariozechner/pi-coding-agent` and `@sinclair/typebox`. Python 3.10+ and `google-adk` needed for the generated projects.
+363 automated tests. Requires `@mariozechner/pi-coding-agent` and `@sinclair/typebox`. Python 3.10+ and `google-adk` needed for the generated projects.
 
 ### pi-subagents
 
@@ -261,7 +261,6 @@ pi-extensions/
       index.ts
       lib/    # discovery, runtime, metadata, drift, tool planning, wizard, etc.
       tools/  # create, add-capability, run, list, resolve, check-drift
-      templates/
     scripts/, tests/
   pi-subagents/
     AGENTS.md, README.md, package.json

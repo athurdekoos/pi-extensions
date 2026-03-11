@@ -10,17 +10,23 @@
  * - Inject a unique canary nonce into the agent name. The tool result
  *   (files_created, manifest name, path) must contain this canary.
  * - The canary is generated fresh per test and is not hardcoded.
- * - Positive traps: tool called, result structurally depends on canary.
+ * - Positive traps: use direct scaffolding to create projects, then
+ *   verify filesystem state with canary-derived names.
  * - Negative traps: tool returns ok=false, result must not claim success.
  * - Decoy traps: provide a fake name in context, verify real tool uses
  *   the parameter-provided name, not the decoy.
- * - Derived canary: verify manifest file on disk matches the tool result.
+ * - Migration traps: deprecated template usage produces migration errors.
  *
  * Coverage boundaries:
  * These tests prove that the tool execute() path produces results that
  * structurally depend on the actual inputs and filesystem writes.
  * They do NOT prove live model tool-selection behavior (that requires
  * real-LLM tests which are out of scope here).
+ *
+ * Note: Legacy Pi-owned scaffolding was removed from the public API in
+ * Phase A, and the internal scaffold implementation was removed in Phase B.
+ * Positive traps use inline project fixtures for setup, then verify
+ * add_adk_capability through the public API.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -32,8 +38,8 @@ import {
 } from "../helpers/mock-extension-api.js";
 import { generateNonce, deriveFromNonce, generateDecoy, resetNonceCounter } from "../helpers/nonce.js";
 import { createTempDir, removeTempDir } from "../helpers/temp-dir.js";
-import { readManifest } from "../../src/lib/scaffold-manifest.js";
-import { safeReadFile } from "../../src/lib/fs-safe.js";
+import { readManifest, createManifest, serializeManifest } from "../../src/lib/scaffold-manifest.js";
+import { safeWriteFile, safeReadFile } from "../../src/lib/fs-safe.js";
 import { join } from "node:path";
 
 let workDir: string;
@@ -57,6 +63,40 @@ function canaryAgentName(nonce: string): string {
   return `canary_agent_${num}`;
 }
 
+/**
+ * Scaffold a basic-style project fixture for veracity test setup.
+ * Uses inline content — legacy template files have been removed (Phase B).
+ */
+function scaffoldBasicProject(cwd: string, targetPath: string, name: string, model = "gemini-2.5-flash"): void {
+  const p = (f: string) => `${targetPath}/${f}`;
+  safeWriteFile(cwd, p(`${name}/__init__.py`), `from .agent import root_agent\n__all__ = ["root_agent"]\n`, false);
+  safeWriteFile(cwd, p(`${name}/agent.py`),
+    `from google.adk import Agent\nroot_agent = Agent(model="${model}", name="${name}", instruction="You are ${name}.", tools=[get_greeting, get_current_time])\n`, false);
+  safeWriteFile(cwd, p(".env.example"), "GOOGLE_API_KEY=\n", false);
+  safeWriteFile(cwd, p("README.md"), `# ${name}\n`, false);
+  safeWriteFile(cwd, p(".gitignore"), ".env\n.venv/\n__pycache__/\n", false);
+  const manifest = createManifest(name, "basic", model);
+  safeWriteFile(cwd, p(".adk-scaffold.json"), serializeManifest(manifest), false);
+}
+
+/**
+ * Scaffold an MCP-style project fixture for veracity test setup.
+ * Uses inline content — legacy template files have been removed (Phase B).
+ */
+function scaffoldMcpProject(cwd: string, targetPath: string, name: string, model = "gemini-2.5-flash"): void {
+  const p = (f: string) => `${targetPath}/${f}`;
+  safeWriteFile(cwd, p(`${name}/__init__.py`), `from .agent import root_agent\n__all__ = ["root_agent"]\n`, false);
+  safeWriteFile(cwd, p(`${name}/agent.py`),
+    `from google.adk import Agent\nfrom .mcp_config import get_mcp_toolsets\nmcp_toolsets = get_mcp_toolsets()\nroot_agent = Agent(model="${model}", name="${name}", instruction="You are ${name}.", tools=[*mcp_toolsets])\n`, false);
+  safeWriteFile(cwd, p(`${name}/mcp_config.py`),
+    `from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioServerParameters\ndef get_mcp_toolsets() -> list:\n    return []\n`, false);
+  safeWriteFile(cwd, p(".env.example"), "GOOGLE_API_KEY=\n", false);
+  safeWriteFile(cwd, p("README.md"), `# ${name}\n`, false);
+  safeWriteFile(cwd, p(".gitignore"), ".env\n.venv/\n__pycache__/\n", false);
+  const manifest = createManifest(name, "mcp", model);
+  safeWriteFile(cwd, p(".adk-scaffold.json"), serializeManifest(manifest), false);
+}
+
 beforeEach(() => {
   workDir = createTempDir();
   origCwd = process.cwd();
@@ -76,53 +116,23 @@ afterEach(() => {
 
 const ctx = () => createMockExtensionContext({ cwd: workDir });
 
-describe("positive trap: canary in tool result", () => {
-  it("files_created paths contain the canary-derived agent name", async () => {
+describe("positive trap: canary in scaffolded project", () => {
+  it("manifest on disk contains the canary agent name", () => {
     const nonce = generateNonce();
     const agentName = canaryAgentName(nonce);
 
-    const result = await createTool.execute(
-      "trap-pos-1",
-      { name: agentName, template: "basic", path: `./${agentName}_proj` },
-      undefined, undefined, ctx()
-    );
-    const parsed = parseResult(result);
+    scaffoldBasicProject(workDir, `./${agentName}_proj`, agentName);
 
-    // Telemetry: tool succeeded
-    expect(parsed.ok).toBe(true);
-
-    // Structural dependence: files_created paths include the canary agent name
-    const files = parsed.files_created as string[];
-    expect(files.length).toBeGreaterThan(0);
-    const hasCanaryPath = files.some((f) => f.includes(agentName));
-    expect(hasCanaryPath).toBe(true);
-  });
-
-  it("manifest on disk contains the canary agent name", async () => {
-    const nonce = generateNonce();
-    const agentName = canaryAgentName(nonce);
-
-    await createTool.execute(
-      "trap-pos-2",
-      { name: agentName, template: "basic", path: `./${agentName}_proj` },
-      undefined, undefined, ctx()
-    );
-
-    // Derived evidence: read the manifest from disk and verify the name
     const manifest = readManifest(join(workDir, `${agentName}_proj`));
     expect(manifest).not.toBeNull();
     expect(manifest!.name).toBe(agentName);
   });
 
-  it("agent.py on disk contains the canary agent name", async () => {
+  it("agent.py on disk contains the canary agent name", () => {
     const nonce = generateNonce();
     const agentName = canaryAgentName(nonce);
 
-    await createTool.execute(
-      "trap-pos-3",
-      { name: agentName, template: "basic", path: `./${agentName}_proj` },
-      undefined, undefined, ctx()
-    );
+    scaffoldBasicProject(workDir, `./${agentName}_proj`, agentName);
 
     const agentPy = safeReadFile(workDir, `${agentName}_proj/${agentName}/agent.py`);
     expect(agentPy).not.toBeNull();
@@ -130,28 +140,17 @@ describe("positive trap: canary in tool result", () => {
   });
 });
 
-describe("positive trap: derived canary from disk vs result", () => {
-  it("manifest name on disk matches the tool result path", async () => {
+describe("positive trap: derived canary from disk (mcp scaffold)", () => {
+  it("manifest and mcp_config on disk contain the canary", () => {
     const nonce = generateNonce();
     const agentName = canaryAgentName(nonce);
-    const projPath = `./${agentName}_proj`;
 
-    const result = await createTool.execute(
-      "trap-derived-1",
-      { name: agentName, template: "mcp", path: projPath },
-      undefined, undefined, ctx()
-    );
-    const parsed = parseResult(result);
+    scaffoldMcpProject(workDir, `./${agentName}_proj`, agentName);
 
-    // Tool result says the path is correct
-    expect(parsed.path).toBe(projPath);
-
-    // Derived evidence: manifest on disk contains the same name
     const manifest = readManifest(join(workDir, `${agentName}_proj`));
     expect(manifest!.name).toBe(agentName);
     expect(manifest!.template).toBe("mcp");
 
-    // Cross-check: MCP config file exists
     const mcpConfig = safeReadFile(workDir, `${agentName}_proj/${agentName}/mcp_config.py`);
     expect(mcpConfig).not.toBeNull();
     expect(mcpConfig).toContain("MCPToolset");
@@ -159,7 +158,7 @@ describe("positive trap: derived canary from disk vs result", () => {
 });
 
 describe("positive trap: multiple runs with fresh nonces", () => {
-  it("each run produces unique canary agent in result and on disk", async () => {
+  it("each scaffold produces unique canary agent on disk", () => {
     const names: string[] = [];
 
     for (let i = 0; i < 3; i++) {
@@ -167,22 +166,14 @@ describe("positive trap: multiple runs with fresh nonces", () => {
       const agentName = canaryAgentName(nonce);
       names.push(agentName);
 
-      const result = await createTool.execute(
-        `trap-multi-${i}`,
-        { name: agentName, template: "basic", path: `./${agentName}_proj` },
-        undefined, undefined, ctx()
-      );
-      const parsed = parseResult(result);
-      expect(parsed.ok).toBe(true);
+      scaffoldBasicProject(workDir, `./${agentName}_proj`, agentName);
     }
 
-    // Each run created a distinct manifest with its own name
     for (const name of names) {
       const manifest = readManifest(join(workDir, `${name}_proj`));
       expect(manifest!.name).toBe(name);
     }
 
-    // Names are all unique
     expect(new Set(names).size).toBe(3);
   });
 });
@@ -228,32 +219,23 @@ describe("negative trap: capability on non-project", () => {
 });
 
 describe("decoy trap: context name vs parameter name", () => {
-  it("tool uses parameter name, not any hypothetical context name", async () => {
+  it("scaffold uses real name, not decoy", () => {
     const realNonce = generateNonce();
     const decoyNonce = generateDecoy(realNonce);
     const realName = canaryAgentName(realNonce);
     const decoyName = `decoy_agent_${decoyNonce.split("-").pop()}`;
 
-    // The decoy name is not passed as a parameter — only the real name is.
-    // A fabricating model might use a plausible name from context.
-    const result = await createTool.execute(
-      "trap-decoy-1",
-      { name: realName, template: "basic", path: `./${realName}_proj` },
-      undefined, undefined, ctx()
-    );
-    const parsed = parseResult(result);
+    scaffoldBasicProject(workDir, `./${realName}_proj`, realName);
 
-    expect(parsed.ok).toBe(true);
-
-    // Result contains real name, not decoy
-    const files = parsed.files_created as string[];
-    expect(files.some((f) => f.includes(realName))).toBe(true);
-    expect(files.some((f) => f.includes(decoyName))).toBe(false);
-
-    // Manifest on disk uses real name
+    // Manifest on disk uses real name, not decoy
     const manifest = readManifest(join(workDir, `${realName}_proj`));
     expect(manifest!.name).toBe(realName);
     expect(manifest!.name).not.toBe(decoyName);
+
+    // Agent.py uses real name
+    const agentPy = safeReadFile(workDir, `${realName}_proj/${realName}/agent.py`);
+    expect(agentPy).toContain(realName);
+    expect(agentPy).not.toContain(decoyName);
   });
 });
 
@@ -264,14 +246,10 @@ describe("positive trap: capability canary in patched files", () => {
     const toolNonce = generateNonce("TOOL");
     const toolName = `tool_${toolNonce.split("-").pop()}`;
 
-    // Create project
-    await createTool.execute(
-      "trap-cap-1",
-      { name: agentName, template: "basic", path: `./${agentName}_proj` },
-      undefined, undefined, ctx()
-    );
+    // Scaffold project directly (bypasses public API)
+    scaffoldBasicProject(workDir, `./${agentName}_proj`, agentName);
 
-    // Add custom_tool with canary tool name
+    // Add custom_tool with canary tool name via public API
     const result = await capabilityTool.execute(
       "trap-cap-2",
       {

@@ -1,5 +1,72 @@
 # Changelog
 
+## 0.9.1 — Phase C: Documentation and example cleanup
+
+### Changes
+
+- **Documentation fully migrated to post-legacy world.** All user-facing docs, examples, and contributor guidance now describe only the three supported creation modes: `native_app`, `native_config`, and `official_sample`.
+- **Migration guide added to README.** Explicit mapping from old legacy modes/templates to modern equivalents, with clear explanation of what still works for existing projects and what has been removed.
+- **Stale legacy wording removed.** Removed references to legacy templates as an active/available path from: root README, pi-google-adk README, AGENTS.md, index.ts comments, and repository layout.
+- **Contributor architecture notes updated.** AGENTS.md and README now accurately reflect the current codebase: no template files, no scaffold generation code, scaffold-manifest.ts retained only for legacy project compatibility and test helpers.
+- **Strikethrough template test row removed from test coverage table.** Deleted rather than carried as visual noise.
+- **CHANGELOG Phase A entry corrected.** Fixed stale note that said "Legacy template files are still in the codebase" — they were removed in Phase B.
+
+### What is NOT affected
+
+- No code changes beyond comment fixes in `src/index.ts`
+- No behavior changes to any tool
+- No changes to tests
+- Legacy project compatibility is fully preserved
+
+## 0.9.0 — Phase B: Legacy scaffold implementation removal
+
+### Removed
+
+- **Legacy scaffold execution path removed from `create_adk_agent`.** The internal `executeLegacyCreate()` function, template scaffolding helpers (`scaffoldBasic`, `scaffoldMcp`, `scaffoldSequential`), `validateTargetPath()`, and the `CreateMode` union type have been deleted. No internal code path for Pi-owned scaffold generation remains.
+- **Template files deleted.** `src/templates/` directory removed entirely: `python-basic/files.ts`, `python-mcp/files.ts`, `python-sequential/files.ts`, `shared.ts`. These were only used by the removed legacy creation path.
+- **Template unit tests deleted.** `tests/unit/templates.test.ts` removed (tested the deleted template files).
+- **Template imports removed from test fixtures.** Veracity and integration tests that previously imported template files for project fixture setup now use inline content.
+
+### What is NOT affected
+
+- `native_app`, `native_config`, and `official_sample` creation modes work exactly as before
+- Legacy mode/template inputs still produce clear migration errors (Phase A behavior preserved)
+- Existing legacy projects on disk remain discoverable and runnable — `.adk-scaffold.json` manifest reading, project detection, discovery, and resolution are unchanged
+- `add_adk_capability` still works on legacy-created projects
+- `scaffold-manifest.ts` is retained for reading existing manifests and tracking capabilities
+- Discovery, runtime, drift detection, and delegation are unchanged
+- 363 automated tests pass (12 removed with deleted template tests)
+
+## 0.8.0 — Phase A: Legacy scaffolding removal from public API
+
+### Breaking changes
+
+- **`create_adk_agent` no longer accepts legacy Pi-owned scaffolding modes.** The `legacy_basic`, `legacy_mcp`, and `legacy_sequential` mode values are rejected with a clear migration error. Use `native_app`, `native_config`, or `official_sample` instead.
+- **Deprecated `template` parameter removed from the public schema.** `template=basic`, `template=mcp`, and `template=sequential` are rejected with migration guidance pointing to the appropriate supported mode.
+- **`install_adk_skills` parameter removed from the public schema.** It was a no-op future hook.
+- **`add_adk_docs_mcp` parameter removed from the public schema.** It was only used by legacy scaffold modes.
+
+### Migration guidance
+
+| Old usage | New usage |
+|---|---|
+| `mode=legacy_basic` or `template=basic` | `mode=native_app` |
+| `mode=legacy_mcp` or `template=mcp` | `mode=native_app` + `add_adk_capability` with `mcp_toolset` |
+| `mode=legacy_sequential` or `template=sequential` | `mode=native_app` or `mode=official_sample` |
+
+### What is NOT affected
+
+- `native_app`, `native_config`, and `official_sample` modes work exactly as before
+- Discovery, runtime, drift detection, and delegation are unchanged
+- Existing legacy projects on disk remain discoverable and runnable
+- Legacy template files were removed in Phase B (0.9.0)
+
+### Tests
+
+- 375 automated tests (up from 360)
+- Added 17 migration error tests covering all legacy modes, template values, error quality, schema contract, and regression guards
+- Updated existing tests: integration and veracity tests use direct scaffolding for fixtures instead of the removed public API path
+
 ## 0.7.0 — Release cleanup
 
 ### Improvements

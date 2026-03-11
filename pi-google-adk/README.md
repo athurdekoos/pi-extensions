@@ -6,14 +6,14 @@ Registers six LLM-callable tools:
 
 | Tool | Purpose |
 |------|---------|
-| **`create_adk_agent`** | Create a new ADK project (native CLI, official sample import, or legacy templates) |
+| **`create_adk_agent`** | Create a new ADK project (native CLI or official sample import) |
 | **`add_adk_capability`** | Add tools, MCP, workflows, evals, and docs to an existing project |
 | **`run_adk_agent`** | Execute an on-disk ADK project and return its output |
 | **`list_adk_agents`** | Discover all ADK projects in the workspace |
 | **`resolve_adk_agent`** | Resolve a name or path to a specific ADK project |
 | **`check_adk_sample_drift`** | Detect drift between an imported official sample and its upstream source |
 
-Primary creation uses the installed Google ADK CLI (`adk create`). Official Google ADK samples can be imported from `google/adk-samples`. Legacy Pi-owned templates remain available as a compatibility path.
+Primary creation uses the installed Google ADK CLI (`adk create`). Official Google ADK samples can be imported from `google/adk-samples`.
 
 ## Quick Start
 
@@ -110,10 +110,7 @@ When UI is available and required parameters are missing, presents an interactiv
 | `mode` | string | `native_app` | Creation mode (see below) |
 | `path` | string | `./agents/<name>` | Target directory (must be within the workspace) |
 | `sample_slug` | string | — | Sample slug from the curated catalog (required for `official_sample` mode) |
-| `template` | string | — | DEPRECATED: maps to legacy mode. Use `mode` instead |
 | `model` | string | `gemini-2.5-flash` | Gemini model for the generated agent |
-| `install_adk_skills` | boolean | `true` | Best-effort only; see Limitations |
-| `add_adk_docs_mcp` | boolean | `true` | Emit a local ADK docs MCP example config (legacy modes only) |
 | `overwrite` | boolean | `false` | Overwrite existing files |
 
 **Creation modes:**
@@ -123,9 +120,8 @@ When UI is available and required parameters are missing, presents an interactiv
 | `native_app` | Creates via `adk create APP_NAME` (default, requires ADK CLI) |
 | `native_config` | Creates via `adk create --type=config APP_NAME` (requires ADK CLI with config support) |
 | `official_sample` | Imports an official sample from `google/adk-samples` (requires git) |
-| `legacy_basic` | Pi-owned basic template (deprecated compatibility path) |
-| `legacy_mcp` | Pi-owned MCP template (deprecated compatibility path) |
-| `legacy_sequential` | Pi-owned sequential template (deprecated compatibility path) |
+
+> **Note:** Only the three modes above (`native_app`, `native_config`, `official_sample`) are supported. Legacy Pi-owned scaffolding modes and the old `template` parameter have been fully removed from both the API and the implementation. Callers using removed paths receive a migration error with guidance. See the [Migration from Legacy Scaffolding](#migration-from-legacy-scaffolding) section below.
 
 **Interactive wizard:** When UI is available and `name`/`mode` are not provided, the tool presents a guided flow:
 
@@ -204,20 +200,6 @@ Non-interactive tool planning is available via explicit params:
 ```
 
 **Pi metadata:** Native-created and imported projects get a `.pi-adk-metadata.json` file with provenance info. For imported samples, this includes upstream repo URL, path, ref, commit hash, and import timestamp. When tool planning is used, metadata also includes a `tool_plan` section. This file is additive — the project works without it.
-
-**Legacy template structure (deprecated):**
-
-```
-agents/research_bot/
-  research_bot/
-    __init__.py
-    agent.py
-  .env.example
-  .gitignore
-  .adk-scaffold.json
-  README.md
-  .pi/mcp/adk-docs.example.json
-```
 
 ### `check_adk_sample_drift`
 
@@ -491,9 +473,9 @@ All metadata reads now use structured validation that returns:
 
 Metadata is additive and advisory — it does not affect ADK project runnability.
 
-## Scaffold Manifest
+## Scaffold Manifest (Legacy)
 
-Legacy generated projects include `.adk-scaffold.json`:
+Previously created legacy projects may include `.adk-scaffold.json`:
 
 ```json
 {
@@ -506,7 +488,45 @@ Legacy generated projects include `.adk-scaffold.json`:
 }
 ```
 
-Both `create_adk_agent` and `add_adk_capability` use this manifest for project detection and duplicate avoidance.
+This manifest is still read for project detection and capability tracking by `add_adk_capability`. New projects created via `native_app`, `native_config`, or `official_sample` use `.pi-adk-metadata.json` instead. The legacy scaffold generation code has been fully removed — only manifest reading and capability tracking remain.
+
+## Migration from Legacy Scaffolding
+
+pi-google-adk was redesigned to be Google ADK-first rather than Pi-template-first. Legacy Pi-owned scaffold generation has been fully removed from both the public API and the internal implementation.
+
+### What changed
+
+- The `legacy_basic`, `legacy_mcp`, and `legacy_sequential` creation modes no longer exist.
+- The `template` parameter (`basic`, `mcp`, `sequential`) no longer exists.
+- The `install_adk_skills` and `add_adk_docs_mcp` parameters no longer exist.
+- Template files (`src/templates/`) have been deleted.
+- The internal scaffold execution code has been deleted.
+
+### What to use instead
+
+| Old usage | Replacement |
+|---|---|
+| `mode="legacy_basic"` or `template="basic"` | `mode="native_app"` — creates via `adk create` |
+| `mode="legacy_mcp"` or `template="mcp"` | `mode="native_app"` then `add_adk_capability` with `mcp_toolset`, and/or use tool planning |
+| `mode="legacy_sequential"` or `template="sequential"` | `mode="native_app"` for a custom project, or `mode="official_sample"` if an official sample matches the goal |
+
+### What still works for existing legacy projects
+
+Projects previously created with legacy scaffolding modes remain fully compatible:
+
+- **Discovery:** Legacy projects with `.adk-scaffold.json` are still found by `list_adk_agents` and `resolve_adk_agent`.
+- **Execution:** `run_adk_agent` works on legacy projects — it runs any valid ADK project regardless of how it was created.
+- **Capabilities:** `add_adk_capability` still reads and updates `.adk-scaffold.json` for capability tracking.
+- **Delegation:** pi-subagents can delegate to legacy projects via name resolution.
+
+### What no longer works
+
+- Creating new projects using legacy modes or templates. The API returns a migration error with guidance.
+- The `install_adk_skills` and `add_adk_docs_mcp` parameters. These were only relevant to legacy scaffold modes.
+
+### Why this changed
+
+The ADK CLI (`adk create`) produces well-maintained, up-to-date project structures that track upstream Google ADK conventions. Pi-owned templates were a maintenance burden that diverged from upstream patterns. Native creation, config-based creation, and official sample import cover all practical use cases with better results.
 
 ## Example Prompts
 
@@ -539,12 +559,11 @@ Delegate to researcher: analyze the trade-offs of microservices vs monoliths
 
 These are known, intentional constraints:
 
-- **`install_adk_skills` is a no-op.** The parameter exists as a future hook.
 - **Python only.** No TypeScript, Go, or Java scaffolding.
 - **Curated sample catalog.** Only a subset of `google/adk-samples` is cataloged. The catalog does not dynamically discover upstream samples.
 - **Sample import requires git.** If git is unavailable, import fails clearly.
 - **Drift detection is read-only.** `check_adk_sample_drift` reports drift but does not auto-update or sync. Manual review is required for diverged samples.
-- **Three templates, six capabilities.** No production deployment automation.
+- **Six capabilities for `add_adk_capability`.** No production deployment automation.
 - **Regex-based `tools=[...]` patching.** Targets generated code patterns only.
 - **Manifest is informational.** `.adk-scaffold.json` is not load-bearing.
 - **No custom Pi renderers.** Tool output is plain JSON.
@@ -562,7 +581,7 @@ These are known, intentional constraints:
 
 ## Testing
 
-360 automated tests across unit, extension, integration, and veracity layers.
+363 automated tests across unit, extension, integration, and veracity layers.
 
 ```bash
 npm test              # all tests (excludes LLM)
@@ -579,7 +598,6 @@ npm run verify        # typecheck + verification suite
 | Unit: sample-catalog | 16 | Catalog loading, slug lookup, recommendation scoring, Python-only constraint |
 | Unit: validators | 17 | Input validation for names, paths, templates, models |
 | Unit: fs-safe | 14 | Path safety, file operations, traversal prevention |
-| Unit: templates | 12 | Template file generation for basic, mcp, sequential |
 | Unit: sample-discovery | 9 | Sample project detection, discovery, resolution, label distinction |
 | Unit: scaffold-manifest | 8 | Manifest creation, serialization, reading |
 | Unit: native-discovery-compat | 8 | Native-created projects discoverable via pi-metadata and heuristics |
@@ -600,23 +618,24 @@ npm run verify        # typecheck + verification suite
 | Unit: metadata-schema-consistency | 20 | Shared schema contract, writer validation, round-trip, drift protection |
 | Extension: registration | 10 | All 6 tools registered with correct metadata |
 | Extension: check-drift-behavior | 10 | Drift tool registration, error statuses, interactive picker, metadata safety |
-| Extension: native-create-behavior | 10 | Native mode dispatching, hard-failure, legacy compat, mode resolution |
+| Extension: native-create-behavior | 10 | Native mode dispatching, hard-failure, migration errors, mode resolution |
+| Extension: legacy-migration-errors | 17 | Legacy mode/template rejection, migration guidance, schema contract |
 | Extension: create-sample-behavior | 7 | Sample mode dispatch, slug validation, wizard activation |
 | Extension: run-adk-agent | 6 | Runtime behavior, CLI availability, credential handling |
-| Extension: tool-behavior | 8 | Legacy creation, validation, path safety |
+| Extension: tool-behavior | 7 | Template rejection, validation, path safety |
 | Integration: scaffold-workflow | 8 | End-to-end scaffold + capability workflows |
-| Veracity: scaffold-traps | 10 | Canary-based proof of actual file creation |
+| Veracity: scaffold-traps | 9 | Canary-based proof of actual file creation |
 
 ## Release Checklist
 
 Before tagging a release:
 
 - [ ] `npm run verify` passes
-- [ ] `npm test` passes (360 tests)
+- [ ] `npm test` passes (363 tests)
 - [ ] Manual smoke test: `pi -e ./src/index.ts` loads all 6 tools
 - [ ] Manual smoke test: native app creation works with installed ADK CLI
 - [ ] Manual smoke test: native config creation fails clearly when unsupported
-- [ ] Manual smoke test: legacy template modes still create projects
+- [ ] Manual smoke test: removed legacy modes produce clear migration errors
 - [ ] Manual smoke test: interactive wizard presents mode selection
 - [ ] Manual smoke test: official sample import via wizard works
 - [ ] Manual smoke test: non-interactive sample import with `mode=official_sample` + `sample_slug` works
