@@ -277,6 +277,63 @@ When asked to create or modify an extension in this repo:
 6. document required external dependencies or CLIs
 7. provide a concrete manual validation path
 
+## Issue Management
+
+### Issue Templates
+
+This repository uses GitHub issue templates in `.github/ISSUE_TEMPLATE/`. When creating issues, always use the appropriate template:
+
+| Template | When to Use |
+|---|---|
+| **Bug Report** | Something is broken or behaving unexpectedly |
+| **Feature Request** | Proposing a new feature or enhancement to an existing extension |
+| **New Extension Proposal** | Proposing an entirely new extension for the repository |
+| **Investigation / Spike** | Timeboxed research question or technical spike |
+| **Refactoring / Tech Debt** | Cleanup, refactor, or tech debt paydown |
+
+Do not create freeform issues without a template unless none of the above apply.
+
+### Extension Labels
+
+Every issue must be labeled with the extension it relates to. Use the following labels:
+
+| Label | When to Apply |
+|---|---|
+| `pi-google-adk` | Issues related to the pi-google-adk extension |
+| `pi-subagents` | Issues related to the pi-subagents extension |
+| `pi-gh` | Issues related to the pi-gh extension |
+| `upstream` | Issues that are Pi core bugs or feature requests, not specific to an extension in this repo |
+| `new-extension` | Proposals for extensions that do not exist yet |
+
+Rules:
+
+- Apply exactly one extension label per issue, unless the issue spans multiple extensions (e.g. a coordinator integrating two extensions).
+- When a new extension folder is added to the repo, create a matching GitHub label for it.
+- New extension proposals use the `new-extension` label until the extension is created, at which point they should be relabeled to the new extension-specific label.
+- Issues about Pi core behavior that are tracked here for visibility use `upstream`.
+- If you are unsure which extension an issue belongs to, ask the user before labeling.
+
+### Priority Labels
+
+Use priority labels when known:
+
+| Label | Meaning |
+|---|---|
+| `P0: critical` | Must fix immediately |
+| `P1: high` | Address this cycle |
+| `P2: medium` | Planned work |
+| `P3: low` | Backlog |
+
+### Other Labels
+
+| Label | Meaning |
+|---|---|
+| `bug` | Something isn't working |
+| `enhancement` | New feature or request |
+| `investigation` | Research / spike / investigation |
+| `tech-debt` | Cleanup or refactoring work |
+| `documentation` | Documentation improvements |
+
 ## Review Checklist
 
 Before considering work complete, check:
