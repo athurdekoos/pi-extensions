@@ -1,0 +1,98 @@
+name: New Extension Proposal
+description: Propose a new Pi extension for this repository
+title: "[Extension]: "
+labels: ["enhancement", "new-extension"]
+body:
+  - type: input
+    id: extension-name
+    attributes:
+      label: Extension Name
+      description: Short kebab-case name for the extension folder.
+      placeholder: e.g. pi-telegram
+    validations:
+      required: true
+
+  - type: input
+    id: one-liner
+    attributes:
+      label: What It Does (one sentence)
+      description: A single sentence describing the extension's purpose.
+      placeholder: e.g. Wraps the Telegram Bot API as Pi tools for sending and receiving messages.
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why It's Needed / Use Cases
+      description: What workflows or problems does this extension enable?
+      placeholder: |
+        - Use case 1: ...
+        - Use case 2: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: tools-commands
+    attributes:
+      label: Tools / Commands It Would Register
+      description: List the Pi tools, commands, or hooks this extension would provide.
+      placeholder: |
+        - tool: `send_message` — sends a message to a Telegram chat
+        - tool: `get_updates` — fetches recent messages
+        - command: `/telegram-status` — shows connection status
+    validations:
+      required: true
+
+  - type: textarea
+    id: external-dependencies
+    attributes:
+      label: External CLIs or Services Required
+      description: List any external tools, APIs, or services this extension depends on.
+      placeholder: |
+        - CLI: `telegram-cli` (optional)
+        - API: Telegram Bot API (requires BOT_TOKEN)
+    validations:
+      required: true
+
+  - type: textarea
+    id: security
+    attributes:
+      label: Security Implications
+      description: Describe any security considerations — credentials, network access, destructive operations, etc.
+      placeholder: |
+        - Requires API token stored in environment
+        - Sends messages to external service
+        - No destructive local operations
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Suggested Priority
+      description: How important is this extension?
+      options:
+        - P0: critical — must have immediately
+        - P1: high — address this cycle
+        - P2: medium — planned work
+        - P3: low — backlog
+    validations:
+      required: true
+
+  - type: textarea
+    id: related-extensions
+    attributes:
+      label: Related Extensions or Dependencies
+      description: Does this depend on or relate to other extensions in the repo?
+      placeholder: e.g. Could share auth utilities with pi-google-workspace
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other context, links, or references.
+    validations:
+      required: false

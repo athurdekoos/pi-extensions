@@ -12,10 +12,35 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: How severe is this bug?
+      options:
+        - Critical (blocks all usage)
+        - High (major feature broken, no workaround)
+        - Medium (feature broken, workaround exists)
+        - Low (minor inconvenience)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: Frequency
+      description: How often does this occur?
+      options:
+        - Always (100% reproducible)
+        - Intermittent (happens sometimes)
+        - One-time (happened once)
+    validations:
+      required: true
+
   - type: textarea
     id: what-happened
     attributes:
-      label: What Happened
+      label: Actual Behavior
       description: A clear description of what actually happened.
       placeholder: Describe the bug...
     validations:
@@ -42,11 +67,68 @@ body:
     validations:
       required: true
 
-  - type: input
-    id: version
+  - type: textarea
+    id: error-output
     attributes:
-      label: Version
-      description: The version of the extension or package where you encountered the bug.
-      placeholder: e.g. 0.1.0
+      label: Error Output / Logs
+      description: Paste any relevant error messages, stack traces, or terminal output.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Provide details about your environment.
+      placeholder: |
+        - OS: e.g. Ubuntu 22.04
+        - Pi version: e.g. 1.2.0
+        - Node version: e.g. 20.11.0
+        - Extension version: e.g. 0.1.0
+        - ADK CLI version (if applicable): e.g. 1.0.0
+      value: |
+        - OS: 
+        - Pi version: 
+        - Node version: 
+        - Extension version: 
+        - ADK CLI version (if applicable): 
     validations:
       required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Workaround
+      description: Is there a workaround? If so, describe it.
+      placeholder: Describe any workaround...
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria for Fix
+      description: What should a reviewer verify to confirm this is fixed?
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: related
+    attributes:
+      label: Related Issues / PRs
+      description: Link any related issues or pull requests.
+      placeholder: "#123, #456"
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Add screenshots if applicable.
+    validations:
+      required: false

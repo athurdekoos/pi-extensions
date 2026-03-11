@@ -1,0 +1,102 @@
+name: Feature Request
+description: Suggest a new feature or enhancement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: input
+    id: title
+    attributes:
+      label: Feature Title
+      description: A short, descriptive title for the feature.
+      placeholder: e.g. Add confirmation dialog before overwriting projects
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Motivation
+      description: What pain point or need does this feature address?
+      placeholder: Describe the problem this solves...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution
+      description: How should this work? Describe the desired behavior.
+      placeholder: Describe your proposed solution...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What other approaches did you consider and why were they ruled out?
+      placeholder: Describe alternatives...
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: What must be true for this feature to be considered complete?
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Suggested Priority
+      description: How important is this feature?
+      options:
+        - P0: critical — must have immediately
+        - P1: high — address this cycle
+        - P2: medium — planned work
+        - P3: low — backlog
+    validations:
+      required: true
+
+  - type: input
+    id: affected-extension
+    attributes:
+      label: Affected Extension
+      description: Which extension does this apply to? (e.g. pi-google-adk, pi-subagent, or "new")
+      placeholder: e.g. pi-google-adk
+    validations:
+      required: false
+
+  - type: dropdown
+    id: breaking-changes
+    attributes:
+      label: Breaking Changes?
+      description: Would this change break existing behavior?
+      options:
+        - "No"
+        - "Yes"
+        - "Unknown"
+    validations:
+      required: true
+
+  - type: textarea
+    id: mockups
+    attributes:
+      label: Mockups / Examples
+      description: Add screenshots, diagrams, or code examples if applicable.
+    validations:
+      required: false
+
+  - type: textarea
+    id: related
+    attributes:
+      label: Related Issues / PRs
+      description: Link any related issues or pull requests.
+      placeholder: "#123, #456"
+    validations:
+      required: false

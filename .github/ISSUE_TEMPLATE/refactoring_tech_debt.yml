@@ -1,0 +1,92 @@
+name: Refactoring / Tech Debt
+description: Propose a cleanup, refactor, or tech debt paydown
+title: "[Tech Debt]: "
+labels: ["tech-debt"]
+body:
+  - type: textarea
+    id: what-needs-to-change
+    attributes:
+      label: What Needs to Change
+      description: Describe the code, architecture, or pattern that needs cleanup.
+      placeholder: Describe the current state and what should be improved...
+    validations:
+      required: true
+
+  - type: textarea
+    id: why-now
+    attributes:
+      label: Why Now (Risk if Deferred)
+      description: What happens if we don't do this? What's the cost of waiting?
+      placeholder: |
+        - Blocks feature X
+        - Increases bug risk in area Y
+        - Makes onboarding harder
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope Boundary
+      description: What's in scope and what's explicitly out of scope?
+      placeholder: |
+        In scope:
+        - ...
+        Out of scope:
+        - ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: breaking-changes
+    attributes:
+      label: Breaking Changes?
+      description: Would this refactor break existing behavior or APIs?
+      options:
+        - "No"
+        - "Yes"
+        - "Unknown"
+    validations:
+      required: true
+
+  - type: input
+    id: affected-extensions
+    attributes:
+      label: Affected Extensions
+      description: Which extensions are impacted by this change?
+      placeholder: e.g. pi-google-adk, pi-subagent
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: What must be true for this refactor to be considered complete?
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How urgent is this cleanup?
+      options:
+        - P0: critical — blocks other work
+        - P1: high — address this cycle
+        - P2: medium — planned work
+        - P3: low — backlog
+    validations:
+      required: true
+
+  - type: textarea
+    id: related
+    attributes:
+      label: Related Issues / PRs
+      description: Link any related issues or pull requests.
+      placeholder: "#123, #456"
+    validations:
+      required: false

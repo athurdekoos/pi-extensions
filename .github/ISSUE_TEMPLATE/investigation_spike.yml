@@ -1,0 +1,85 @@
+name: Investigation / Spike
+description: Research question or technical spike with a timeboxed output
+title: "[Spike]: "
+labels: ["investigation"]
+body:
+  - type: textarea
+    id: research-question
+    attributes:
+      label: Research Question
+      description: What are we trying to learn or decide?
+      placeholder: e.g. Can the coordinator agent dynamically create specialized subagents at runtime?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context / Background
+      description: Why is this investigation needed now? What do we already know?
+      placeholder: Describe the background...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: timebox
+    attributes:
+      label: Timebox
+      description: How much time should be spent on this investigation?
+      options:
+        - 1-2 hours
+        - Half day
+        - 1 day
+        - 2-3 days
+        - 1 week
+    validations:
+      required: true
+
+  - type: dropdown
+    id: expected-output
+    attributes:
+      label: Expected Output
+      description: What artifact should this spike produce?
+      options:
+        - Decision document (go / no-go)
+        - Proof of concept
+        - Written recommendation
+        - Technical design sketch
+        - Comparison of options
+        - Other (describe in success criteria)
+    validations:
+      required: true
+
+  - type: textarea
+    id: success-criteria
+    attributes:
+      label: Success Criteria
+      description: What would a useful answer look like? When is this spike "done"?
+      placeholder: |
+        - [ ] We know whether X is feasible
+        - [ ] We have a recommendation with tradeoffs documented
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How urgent is this investigation?
+      options:
+        - P0: critical — blocks other work
+        - P1: high — address this cycle
+        - P2: medium — planned work
+        - P3: low — backlog
+    validations:
+      required: true
+
+  - type: textarea
+    id: related
+    attributes:
+      label: Related Issues / PRs
+      description: Link any related issues or pull requests this spike informs.
+      placeholder: "#123, #456"
+    validations:
+      required: false
