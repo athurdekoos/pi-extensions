@@ -18,13 +18,13 @@ export function registerListAdkAgents(pi: ExtensionAPI): void {
     description:
       "Discover and list all ADK agent projects in the workspace. " +
       "Scans ./agents/ for projects created by create_adk_agent. " +
-      "Returns name, path, template, and capabilities for each agent.",
+      "Returns name, path, template, and source type for each agent.",
     parameters: ListAdkAgentsParams,
     promptSnippet:
       "list_adk_agents - List all discoverable ADK agent projects in the workspace.",
     promptGuidelines: [
       "Use to see what ADK agents are available before delegating work.",
-      "Agents are discovered from ./agents/ based on .adk-scaffold.json manifests or heuristics.",
+      "Agents are discovered from ./agents/ based on .pi-adk-metadata.json or heuristics.",
     ],
 
     async execute(
@@ -43,7 +43,6 @@ export function registerListAdkAgents(pi: ExtensionAPI): void {
           name: a.name,
           project_path: a.project_path,
           template: a.template,
-          capabilities: a.capabilities,
           source: a.source,
           label: a.label,
         })),

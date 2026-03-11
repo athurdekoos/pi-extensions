@@ -2,8 +2,8 @@
  * Unit tests: ADK discovery and resolution.
  *
  * Behavior protected:
- * - discoverAdkAgents finds scaffolded agents under ./agents/
- * - discoverAdkAgents uses manifest data when present
+ * - discoverAdkAgents finds projects under ./agents/
+ * - discoverAdkAgents uses pi-metadata when present
  * - discoverAdkAgents falls back to heuristic detection
  * - discoverAdkAgents returns empty array for empty workspace
  * - resolveAdkAgent by exact name works
@@ -13,12 +13,15 @@
  * - resolveAdkAgent no-match returns not_found
  * - resolveAdkAgent ambiguous match returns ambiguous
  * - Newly created agents are discoverable immediately
- * - basic, mcp, sequential templates are all discoverable
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { discoverAdkAgents, resolveAdkAgent } from "../../src/lib/adk-discovery.js";
-import { createManifest, serializeManifest, MANIFEST_FILENAME } from "../../src/lib/scaffold-manifest.js";
+import {
+  buildCreationMetadata,
+  buildSampleImportMetadata,
+  writeCreationMetadata,
+} from "../../src/lib/creation-metadata.js";
 import { safeWriteFile, safeEnsureDir } from "../../src/lib/fs-safe.js";
 import { createTempDir, removeTempDir } from "../helpers/temp-dir.js";
 
@@ -32,22 +35,48 @@ afterEach(() => {
   removeTempDir(workDir);
 });
 
-/** Helper: scaffold a minimal ADK agent with manifest under agents/<name>. */
+/** Helper: scaffold a project with pi-metadata under agents/<name>. */
 function scaffoldAgent(
   name: string,
-  template: "basic" | "mcp" | "sequential" = "basic",
-  model = "gemini-2.5-flash",
-  capabilities: string[] = []
+  sourceType: "native_app" | "native_config" | "official_sample" = "native_app",
 ) {
   const agentDir = `agents/${name}`;
   safeEnsureDir(workDir, agentDir);
-  const manifest = createManifest(name, template, model);
-  manifest.capabilities = capabilities;
-  safeWriteFile(workDir, `${agentDir}/${MANIFEST_FILENAME}`, serializeManifest(manifest), false);
-  safeWriteFile(workDir, `${agentDir}/.env.example`, "GOOGLE_API_KEY=", false);
+
+  if (sourceType === "official_sample") {
+    const meta = buildSampleImportMetadata({
+      agentName: name,
+      projectPath: `./${agentDir}`,
+      importArgs: { mode: "official_sample", name, sample_slug: "hello_world" },
+      sampleProvenance: {
+        upstream_repo: "https://github.com/google/adk-samples.git",
+        upstream_path: "agents/hello-world",
+        upstream_ref: "main",
+        commit: "abc123",
+        imported_at: new Date().toISOString(),
+        sample_slug: "hello_world",
+      },
+    });
+    writeCreationMetadata(workDir, agentDir, meta);
+  } else {
+    const meta = buildCreationMetadata({
+      sourceType,
+      agentName: name,
+      projectPath: `./${agentDir}`,
+      adkVersion: "1.0.0",
+      commandUsed: `adk create ${name}`,
+      supportedModes: ["native_app"],
+      creationArgs: { mode: sourceType, name },
+    });
+    writeCreationMetadata(workDir, agentDir, meta);
+  }
+
+  // Simulate agent subdirectory
+  safeEnsureDir(workDir, `${agentDir}/${name}`);
+  safeWriteFile(workDir, `${agentDir}/${name}/agent.py`, "root_agent = None", false);
 }
 
-/** Helper: scaffold a heuristic-only agent (no manifest). */
+/** Helper: scaffold a heuristic-only agent (no metadata). */
 function scaffoldHeuristicAgent(name: string) {
   const agentDir = `agents/${name}`;
   safeEnsureDir(workDir, agentDir);
@@ -66,33 +95,32 @@ describe("discoverAdkAgents", () => {
     expect(agents).toEqual([]);
   });
 
-  it("discovers a single agent with manifest", () => {
+  it("discovers a single agent with pi-metadata", () => {
     scaffoldAgent("researcher");
     const agents = discoverAdkAgents(workDir);
     expect(agents).toHaveLength(1);
     expect(agents[0].name).toBe("researcher");
-    expect(agents[0].template).toBe("basic");
+    expect(agents[0].template).toBe("native_app");
     expect(agents[0].project_path).toBe("./agents/researcher");
-    expect(agents[0].source).toBe("manifest");
+    expect(agents[0].source).toBe("pi-metadata");
   });
 
   it("discovers multiple agents", () => {
-    scaffoldAgent("researcher", "basic");
-    scaffoldAgent("writer", "sequential");
-    scaffoldAgent("connector", "mcp");
+    scaffoldAgent("researcher", "native_app");
+    scaffoldAgent("writer", "native_config");
+    scaffoldAgent("connector", "official_sample");
     const agents = discoverAdkAgents(workDir);
     expect(agents).toHaveLength(3);
     expect(agents.map((a) => a.name).sort()).toEqual(["connector", "researcher", "writer"]);
   });
 
-  it("uses manifest data for template and capabilities", () => {
-    scaffoldAgent("researcher", "mcp", "gemini-2.5-flash", ["web_search", "code_exec"]);
+  it("uses metadata for template type", () => {
+    scaffoldAgent("researcher", "native_config");
     const agents = discoverAdkAgents(workDir);
-    expect(agents[0].template).toBe("mcp");
-    expect(agents[0].capabilities).toEqual(["web_search", "code_exec"]);
+    expect(agents[0].template).toBe("native_config");
   });
 
-  it("falls back to heuristic detection when no manifest", () => {
+  it("falls back to heuristic detection when no metadata", () => {
     scaffoldHeuristicAgent("legacy_agent");
     const agents = discoverAdkAgents(workDir);
     expect(agents).toHaveLength(1);
@@ -110,51 +138,25 @@ describe("discoverAdkAgents", () => {
     expect(agents[0].name).toBe("real_agent");
   });
 
-  it("discovers all template types", () => {
-    scaffoldAgent("basic_agent", "basic");
-    scaffoldAgent("mcp_agent", "mcp");
-    scaffoldAgent("seq_agent", "sequential");
-    const agents = discoverAdkAgents(workDir);
-    expect(agents).toHaveLength(3);
-    const templates = agents.map((a) => a.template).sort();
-    expect(templates).toEqual(["basic", "mcp", "sequential"]);
-  });
-
   it("newly created agent is discoverable immediately", () => {
-    // First discovery — empty
     expect(discoverAdkAgents(workDir)).toHaveLength(0);
-
-    // Create an agent
     scaffoldAgent("new_agent");
-
-    // Immediate re-discovery — should find it
     const agents = discoverAdkAgents(workDir);
     expect(agents).toHaveLength(1);
     expect(agents[0].name).toBe("new_agent");
   });
 
-  it("includes label with name, template, and path", () => {
-    scaffoldAgent("researcher", "mcp");
+  it("includes label with name and path", () => {
+    scaffoldAgent("researcher");
     const agents = discoverAdkAgents(workDir);
     expect(agents[0].label).toContain("researcher");
-    expect(agents[0].label).toContain("mcp");
     expect(agents[0].label).toContain("./agents/researcher");
   });
 
-  // Phase 3: richer labels with capabilities
-  it("includes capabilities in label when present", () => {
-    scaffoldAgent("researcher", "mcp", "gemini-2.5-flash", ["web_search", "code_exec"]);
+  it("label includes source type tag", () => {
+    scaffoldAgent("researcher", "native_app");
     const agents = discoverAdkAgents(workDir);
-    expect(agents[0].label).toContain("[web_search, code_exec]");
-    expect(agents[0].label).toContain("researcher");
-    expect(agents[0].label).toContain("mcp");
-  });
-
-  it("omits capabilities bracket from label when empty", () => {
-    scaffoldAgent("basic_agent", "basic");
-    const agents = discoverAdkAgents(workDir);
-    expect(agents[0].label).not.toContain("[");
-    expect(agents[0].label).not.toContain("]");
+    expect(agents[0].label).toContain("[native_app]");
   });
 });
 
@@ -218,13 +220,8 @@ describe("resolveAdkAgent", () => {
   });
 
   it("resolves newly created agent immediately", () => {
-    // Not found before creation
     expect(resolveAdkAgent(workDir, "dynamic").status).toBe("not_found");
-
-    // Create it
     scaffoldAgent("dynamic");
-
-    // Found after creation
     const result = resolveAdkAgent(workDir, "dynamic");
     expect(result.status).toBe("found");
     expect(result.agent?.name).toBe("dynamic");

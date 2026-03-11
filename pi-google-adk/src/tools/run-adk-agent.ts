@@ -23,7 +23,7 @@ export const RunAdkAgentParams = Type.Object({
   project_path: Type.String({
     description:
       "Path to the ADK project root, relative to the workspace. " +
-      "Must be a directory containing an .adk-scaffold.json manifest or recognized ADK project structure.",
+      "Must be a directory containing a .pi-adk-metadata.json file or recognized ADK project structure.",
   }),
   prompt: Type.String({
     description: "Task or query to send to the ADK agent.",
@@ -93,8 +93,6 @@ export function buildRunAdkAgentToolDef(): ToolDefinition {
           final_output: "",
           raw_stdout: "",
           raw_stderr: "",
-          stdout: "",
-          stderr: "",
           exit_code: null,
           error: cliCheck.error ?? "The 'adk' CLI is not available.",
         };

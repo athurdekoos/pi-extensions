@@ -24,6 +24,7 @@ import {
 import { createTempDir, removeTempDir } from "../helpers/temp-dir.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { buildCreationMetadata, writeCreationMetadata } from "../../src/lib/creation-metadata.js";
 
 let workDir: string;
 let runTool: RegisteredToolCapture;
@@ -56,10 +57,16 @@ function parseResult(result: { content: Array<{ type: string; text?: string }> }
 function createValidAdkProject(name: string): string {
   const projDir = join(workDir, "agents", name);
   mkdirSync(projDir, { recursive: true });
-  writeFileSync(
-    join(projDir, ".adk-scaffold.json"),
-    JSON.stringify({ name, template: "basic", model: "gemini-2.5-flash" })
-  );
+  const meta = buildCreationMetadata({
+    sourceType: "native_app",
+    agentName: name,
+    projectPath: `./agents/${name}`,
+    adkVersion: "1.0.0",
+    commandUsed: `adk create ${name}`,
+    supportedModes: ["native_app"],
+    creationArgs: { mode: "native_app", name },
+  });
+  writeCreationMetadata(projDir, ".", meta);
   return `agents/${name}`;
 }
 

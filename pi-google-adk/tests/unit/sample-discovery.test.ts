@@ -6,7 +6,7 @@
  * - Imported samples are resolvable by name and path
  * - Labels distinguish official_sample from native_app/native_config
  * - source_type field is populated correctly
- * - Mixed workspaces (native + sample + legacy) discover all
+ * - Mixed workspaces (native + sample) discover all
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -17,7 +17,6 @@ import {
   buildCreationMetadata,
   writeCreationMetadata,
 } from "../../src/lib/creation-metadata.js";
-import { createManifest, serializeManifest, MANIFEST_FILENAME } from "../../src/lib/scaffold-manifest.js";
 import { safeWriteFile, safeEnsureDir } from "../../src/lib/fs-safe.js";
 import { createTempDir, removeTempDir } from "../helpers/temp-dir.js";
 
@@ -76,15 +75,6 @@ function scaffoldNativeProject(name: string, sourceType: "native_app" | "native_
   safeWriteFile(workDir, `${agentDir}/${name}/agent.py`, "root_agent = None", false);
 }
 
-/** Scaffold a legacy project. */
-function scaffoldLegacyProject(name: string) {
-  const agentDir = `agents/${name}`;
-  safeEnsureDir(workDir, agentDir);
-  const manifest = createManifest(name, "basic", "gemini-2.5-flash");
-  safeWriteFile(workDir, `${agentDir}/${MANIFEST_FILENAME}`, serializeManifest(manifest), false);
-  safeWriteFile(workDir, `${agentDir}/.env.example`, "GOOGLE_API_KEY=", false);
-}
-
 // ---------------------------------------------------------------------------
 // Detection
 // ---------------------------------------------------------------------------
@@ -141,14 +131,13 @@ describe("discoverAdkAgents with imported samples", () => {
     expect(sampleAgent!.source_type).toBe("official_sample");
   });
 
-  it("discovers mixed workspace: native + sample + legacy", () => {
+  it("discovers mixed workspace: native + sample", () => {
     scaffoldNativeProject("native_one");
     scaffoldSampleProject("sample_one");
-    scaffoldLegacyProject("legacy_one");
     const agents = discoverAdkAgents(workDir);
-    expect(agents).toHaveLength(3);
+    expect(agents).toHaveLength(2);
     const names = agents.map((a) => a.name).sort();
-    expect(names).toEqual(["legacy_one", "native_one", "sample_one"]);
+    expect(names).toEqual(["native_one", "sample_one"]);
   });
 });
 

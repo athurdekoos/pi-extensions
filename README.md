@@ -8,8 +8,8 @@ A collection of extensions for [`@mariozechner/pi-coding-agent`](https://github.
 |-----------|-------------|--------|
 | [pi-clear](./pi-clear/) | `/clear` command to start a fresh session, optionally carrying over the editor draft | Ready |
 | [pi-gh](./pi-gh/) | Structured GitHub CLI tools for issues, PRs, Actions, and repo info | Ready |
-| [pi-google-adk](./pi-google-adk/) | Create, import, discover, resolve, and run Python-first Google ADK agent projects | Ready |
-| [pi-subagents](./pi-subagents/) | Sub-agent orchestration with bounded child sessions and ADK agent delegation | Ready |
+| [pi-google-adk](./pi-google-adk/) | Create, import, discover, resolve, and run Python-first Google ADK agent projects | In Work |
+| [pi-subagents](./pi-subagents/) | Sub-agent orchestration with bounded child sessions and ADK agent delegation | In Work |
 | [shared/adk-metadata-schema](./shared/adk-metadata-schema/) | Canonical metadata contract shared by pi-google-adk and pi-subagents | Internal |
 
 ## Cross-extension integration
@@ -191,7 +191,7 @@ Registers six tools for the full ADK agent lifecycle:
 | `resolve_adk_agent` | Resolve a name or path to a specific ADK project |
 | `check_adk_sample_drift` | Detect drift between an imported sample and its upstream source |
 
-Primary creation uses the installed ADK CLI (`adk create`). Official samples can be imported from `google/adk-samples`. Existing legacy projects on disk remain discoverable and runnable, but new legacy scaffold generation has been removed.
+Primary creation uses the installed ADK CLI (`adk create`). Official samples can be imported from `google/adk-samples`. Legacy scaffold generation and legacy project compatibility (`.adk-scaffold.json`) have been fully removed.
 
 363 automated tests. Requires `@mariozechner/pi-coding-agent` and `@sinclair/typebox`. Python 3.10+ and `google-adk` needed for the generated projects.
 

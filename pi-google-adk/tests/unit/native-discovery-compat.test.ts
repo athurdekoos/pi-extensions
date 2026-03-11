@@ -5,8 +5,7 @@
  * - Native projects with .pi-adk-metadata.json are discoverable
  * - Native projects with agent.py subdirectory heuristic are discoverable
  * - Native projects can be resolved by name and path
- * - Legacy manifest-based projects still work
- * - Mixed native + legacy workspaces discover all projects
+ * - Mixed native workspaces discover all projects
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -16,7 +15,6 @@ import {
   buildCreationMetadata,
   writeCreationMetadata,
 } from "../../src/lib/creation-metadata.js";
-import { createManifest, serializeManifest, MANIFEST_FILENAME } from "../../src/lib/scaffold-manifest.js";
 import { safeWriteFile, safeEnsureDir } from "../../src/lib/fs-safe.js";
 import { createTempDir, removeTempDir } from "../helpers/temp-dir.js";
 
@@ -66,15 +64,6 @@ function scaffoldNativeProject(
   );
 }
 
-/** Scaffold a legacy manifest-based project. */
-function scaffoldLegacyProject(name: string) {
-  const agentDir = `agents/${name}`;
-  safeEnsureDir(workDir, agentDir);
-  const manifest = createManifest(name, "basic", "gemini-2.5-flash");
-  safeWriteFile(workDir, `${agentDir}/${MANIFEST_FILENAME}`, serializeManifest(manifest), false);
-  safeWriteFile(workDir, `${agentDir}/.env.example`, "GOOGLE_API_KEY=", false);
-}
-
 // ---------------------------------------------------------------------------
 // Detection
 // ---------------------------------------------------------------------------
@@ -110,13 +99,13 @@ describe("discoverAdkAgents with native projects", () => {
     expect(agents[0].project_path).toBe("./agents/native_hello");
   });
 
-  it("discovers both native and legacy projects", () => {
-    scaffoldNativeProject("native_agent");
-    scaffoldLegacyProject("legacy_agent");
+  it("discovers multiple native projects", () => {
+    scaffoldNativeProject("native_agent_a");
+    scaffoldNativeProject("native_agent_b", "native_config");
     const agents = discoverAdkAgents(workDir);
     expect(agents).toHaveLength(2);
     const names = agents.map((a) => a.name).sort();
-    expect(names).toEqual(["legacy_agent", "native_agent"]);
+    expect(names).toEqual(["native_agent_a", "native_agent_b"]);
   });
 
   it("native project has template from metadata", () => {
@@ -143,14 +132,5 @@ describe("resolveAdkAgent with native projects", () => {
     const result = resolveAdkAgent(workDir, "./agents/path_resolve");
     expect(result.status).toBe("found");
     expect(result.agent?.name).toBe("path_resolve");
-  });
-
-  it("resolves in mixed workspace", () => {
-    scaffoldNativeProject("native_one");
-    scaffoldLegacyProject("legacy_one");
-    const r1 = resolveAdkAgent(workDir, "native_one");
-    const r2 = resolveAdkAgent(workDir, "legacy_one");
-    expect(r1.status).toBe("found");
-    expect(r2.status).toBe("found");
   });
 });

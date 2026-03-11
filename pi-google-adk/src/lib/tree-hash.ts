@@ -11,7 +11,6 @@
  * - .DS_Store               (macOS junk)
  * - __pycache__/            (Python bytecode cache)
  * - *.pyc                   (compiled Python)
- * - .adk-scaffold.json      (legacy Pi manifest)
  */
 
 import { createHash } from "node:crypto";
@@ -25,7 +24,6 @@ import { join, relative } from "node:path";
 /** Files/dirs to exclude from tree hashing (basename match). */
 export const DEFAULT_IGNORE_BASENAMES = new Set([
   ".pi-adk-metadata.json",
-  ".adk-scaffold.json",
   ".git",
   ".DS_Store",
   "__pycache__",

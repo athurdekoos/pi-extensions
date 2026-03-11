@@ -43,6 +43,7 @@ const OWN_TOOLS = new Set([
   "run_adk_agent",
   "list_adk_agents",
   "resolve_adk_agent",
+  "check_adk_sample_drift",
 ]);
 
 // ---------------------------------------------------------------------------

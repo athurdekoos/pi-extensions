@@ -4,10 +4,12 @@
  * Behavior protected:
  * - End-to-end: create project then add capabilities
  * - File structure correctness after full workflows
- * - Manifest tracking across multi-step operations
  * - custom_tool patches agent.py import and tools list
  * - eval_stub, deploy_stub, observability_notes create expected files
  * - Cleanup: temp directories removed after each test
+ *
+ * Note: Legacy .adk-scaffold.json manifest tracking has been removed.
+ * Capability tracking via manifest no longer applies.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -18,7 +20,10 @@ import {
   type RegisteredToolCapture,
 } from "../helpers/mock-extension-api.js";
 import { createTempDir, removeTempDir } from "../helpers/temp-dir.js";
-import { readManifest, createManifest, serializeManifest } from "../../src/lib/scaffold-manifest.js";
+import {
+  buildCreationMetadata,
+  writeCreationMetadata,
+} from "../../src/lib/creation-metadata.js";
 import { safeWriteFile, safeReadFile } from "../../src/lib/fs-safe.js";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -33,8 +38,7 @@ function parseResult(result: { content: Array<{ type: string; text?: string }> }
 }
 
 /**
- * Scaffold a basic-style project fixture for integration test setup.
- * Uses inline content — legacy template files have been removed (Phase B).
+ * Scaffold a project fixture using pi-metadata for detection.
  */
 function scaffoldBasicProject(cwd: string, targetPath: string, name: string, model = "gemini-2.5-flash"): void {
   const p = (f: string) => `${targetPath}/${f}`;
@@ -44,8 +48,16 @@ function scaffoldBasicProject(cwd: string, targetPath: string, name: string, mod
   safeWriteFile(cwd, p(".env.example"), "GOOGLE_API_KEY=\n", false);
   safeWriteFile(cwd, p("README.md"), `# ${name}\n`, false);
   safeWriteFile(cwd, p(".gitignore"), ".env\n.venv/\n__pycache__/\n", false);
-  const manifest = createManifest(name, "basic", model);
-  safeWriteFile(cwd, p(".adk-scaffold.json"), serializeManifest(manifest), false);
+  const meta = buildCreationMetadata({
+    sourceType: "native_app",
+    agentName: name,
+    projectPath: targetPath,
+    adkVersion: "1.0.0",
+    commandUsed: `adk create ${name}`,
+    supportedModes: ["native_app"],
+    creationArgs: { mode: "native_app", name },
+  });
+  writeCreationMetadata(cwd, targetPath, meta);
 }
 
 beforeEach(() => {
@@ -67,10 +79,8 @@ const ctx = () => createMockExtensionContext({ cwd: workDir });
 
 describe("scaffold then add custom_tool", () => {
   it("creates project and patches agent.py with new tool", async () => {
-    // Step 1: scaffold basic project directly (bypasses public API)
     scaffoldBasicProject(workDir, "./int_proj", "int_agent");
 
-    // Step 2: add custom_tool
     const capResult = await capabilityTool.execute(
       "int-2",
       {
@@ -90,10 +100,6 @@ describe("scaffold then add custom_tool", () => {
     const agentPy = safeReadFile(workDir, "int_proj/int_agent/agent.py");
     expect(agentPy).toContain("from .tools.fetch_data import fetch_data");
     expect(agentPy).toContain("fetch_data");
-
-    // Verify: manifest updated
-    const manifest = readManifest(join(workDir, "int_proj"));
-    expect(manifest!.capabilities).toContain("custom_tool");
   });
 });
 
@@ -180,35 +186,8 @@ describe("scaffold then add mcp_toolset to basic project", () => {
   });
 });
 
-describe("multiple capabilities accumulate in manifest", () => {
-  it("tracks all added capabilities", async () => {
-    scaffoldBasicProject(workDir, "./multi_proj", "multi_agent");
-    await capabilityTool.execute(
-      "int-multi-2",
-      { project_path: "./multi_proj", capability: "eval_stub" },
-      undefined, undefined, ctx()
-    );
-    await capabilityTool.execute(
-      "int-multi-3",
-      { project_path: "./multi_proj", capability: "deploy_stub" },
-      undefined, undefined, ctx()
-    );
-    await capabilityTool.execute(
-      "int-multi-4",
-      { project_path: "./multi_proj", capability: "observability_notes" },
-      undefined, undefined, ctx()
-    );
-
-    const manifest = readManifest(join(workDir, "multi_proj"));
-    expect(manifest!.capabilities).toContain("eval_stub");
-    expect(manifest!.capabilities).toContain("deploy_stub");
-    expect(manifest!.capabilities).toContain("observability_notes");
-    expect(manifest!.capabilities).toHaveLength(3);
-  });
-});
-
 describe("idempotent capability addition", () => {
-  it("adding same capability twice does not create duplicates", async () => {
+  it("adding same capability twice succeeds without errors", async () => {
     scaffoldBasicProject(workDir, "./idemp_proj", "idemp_agent");
     await capabilityTool.execute(
       "int-idemp-2",
@@ -225,9 +204,5 @@ describe("idempotent capability addition", () => {
     // Should succeed but files are skipped
     expect(parsed.ok).toBe(true);
     expect((parsed.files_skipped as string[]).length).toBeGreaterThan(0);
-
-    const manifest = readManifest(join(workDir, "idemp_proj"));
-    // Capability should appear once (addCapabilityToManifest is idempotent)
-    expect(manifest!.capabilities.filter((c: string) => c === "eval_stub")).toHaveLength(1);
   });
 });

@@ -4,18 +4,17 @@
  * This extension is a scaffolding tool, not a CLI wrapper that returns
  * opaque external data. The veracity risk is: a model could claim it
  * created files without actually calling the tool, or fabricate
- * file paths / manifest contents.
+ * file paths / metadata contents.
  *
  * Strategy:
  * - Inject a unique canary nonce into the agent name. The tool result
- *   (files_created, manifest name, path) must contain this canary.
+ *   (files_created, metadata name, path) must contain this canary.
  * - The canary is generated fresh per test and is not hardcoded.
  * - Positive traps: use direct scaffolding to create projects, then
  *   verify filesystem state with canary-derived names.
  * - Negative traps: tool returns ok=false, result must not claim success.
  * - Decoy traps: provide a fake name in context, verify real tool uses
  *   the parameter-provided name, not the decoy.
- * - Migration traps: deprecated template usage produces migration errors.
  *
  * Coverage boundaries:
  * These tests prove that the tool execute() path produces results that
@@ -23,10 +22,8 @@
  * They do NOT prove live model tool-selection behavior (that requires
  * real-LLM tests which are out of scope here).
  *
- * Note: Legacy Pi-owned scaffolding was removed from the public API in
- * Phase A, and the internal scaffold implementation was removed in Phase B.
- * Positive traps use inline project fixtures for setup, then verify
- * add_adk_capability through the public API.
+ * Note: Legacy .adk-scaffold.json manifest support has been fully removed.
+ * Project fixtures use .pi-adk-metadata.json for detection.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -38,7 +35,11 @@ import {
 } from "../helpers/mock-extension-api.js";
 import { generateNonce, deriveFromNonce, generateDecoy, resetNonceCounter } from "../helpers/nonce.js";
 import { createTempDir, removeTempDir } from "../helpers/temp-dir.js";
-import { readManifest, createManifest, serializeManifest } from "../../src/lib/scaffold-manifest.js";
+import {
+  buildCreationMetadata,
+  writeCreationMetadata,
+  readAndValidateMetadata,
+} from "../../src/lib/creation-metadata.js";
 import { safeWriteFile, safeReadFile } from "../../src/lib/fs-safe.js";
 import { join } from "node:path";
 
@@ -64,10 +65,9 @@ function canaryAgentName(nonce: string): string {
 }
 
 /**
- * Scaffold a basic-style project fixture for veracity test setup.
- * Uses inline content — legacy template files have been removed (Phase B).
+ * Scaffold a project fixture using pi-metadata for detection.
  */
-function scaffoldBasicProject(cwd: string, targetPath: string, name: string, model = "gemini-2.5-flash"): void {
+function scaffoldProject(cwd: string, targetPath: string, name: string, model = "gemini-2.5-flash"): void {
   const p = (f: string) => `${targetPath}/${f}`;
   safeWriteFile(cwd, p(`${name}/__init__.py`), `from .agent import root_agent\n__all__ = ["root_agent"]\n`, false);
   safeWriteFile(cwd, p(`${name}/agent.py`),
@@ -75,26 +75,17 @@ function scaffoldBasicProject(cwd: string, targetPath: string, name: string, mod
   safeWriteFile(cwd, p(".env.example"), "GOOGLE_API_KEY=\n", false);
   safeWriteFile(cwd, p("README.md"), `# ${name}\n`, false);
   safeWriteFile(cwd, p(".gitignore"), ".env\n.venv/\n__pycache__/\n", false);
-  const manifest = createManifest(name, "basic", model);
-  safeWriteFile(cwd, p(".adk-scaffold.json"), serializeManifest(manifest), false);
-}
-
-/**
- * Scaffold an MCP-style project fixture for veracity test setup.
- * Uses inline content — legacy template files have been removed (Phase B).
- */
-function scaffoldMcpProject(cwd: string, targetPath: string, name: string, model = "gemini-2.5-flash"): void {
-  const p = (f: string) => `${targetPath}/${f}`;
-  safeWriteFile(cwd, p(`${name}/__init__.py`), `from .agent import root_agent\n__all__ = ["root_agent"]\n`, false);
-  safeWriteFile(cwd, p(`${name}/agent.py`),
-    `from google.adk import Agent\nfrom .mcp_config import get_mcp_toolsets\nmcp_toolsets = get_mcp_toolsets()\nroot_agent = Agent(model="${model}", name="${name}", instruction="You are ${name}.", tools=[*mcp_toolsets])\n`, false);
-  safeWriteFile(cwd, p(`${name}/mcp_config.py`),
-    `from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioServerParameters\ndef get_mcp_toolsets() -> list:\n    return []\n`, false);
-  safeWriteFile(cwd, p(".env.example"), "GOOGLE_API_KEY=\n", false);
-  safeWriteFile(cwd, p("README.md"), `# ${name}\n`, false);
-  safeWriteFile(cwd, p(".gitignore"), ".env\n.venv/\n__pycache__/\n", false);
-  const manifest = createManifest(name, "mcp", model);
-  safeWriteFile(cwd, p(".adk-scaffold.json"), serializeManifest(manifest), false);
+  // Use pi-metadata for detection
+  const meta = buildCreationMetadata({
+    sourceType: "native_app",
+    agentName: name,
+    projectPath: targetPath,
+    adkVersion: "1.0.0",
+    commandUsed: `adk create ${name}`,
+    supportedModes: ["native_app"],
+    creationArgs: { mode: "native_app", name },
+  });
+  writeCreationMetadata(cwd, targetPath, meta);
 }
 
 beforeEach(() => {
@@ -117,43 +108,26 @@ afterEach(() => {
 const ctx = () => createMockExtensionContext({ cwd: workDir });
 
 describe("positive trap: canary in scaffolded project", () => {
-  it("manifest on disk contains the canary agent name", () => {
+  it("pi-metadata on disk contains the canary agent name", () => {
     const nonce = generateNonce();
     const agentName = canaryAgentName(nonce);
 
-    scaffoldBasicProject(workDir, `./${agentName}_proj`, agentName);
+    scaffoldProject(workDir, `./${agentName}_proj`, agentName);
 
-    const manifest = readManifest(join(workDir, `${agentName}_proj`));
-    expect(manifest).not.toBeNull();
-    expect(manifest!.name).toBe(agentName);
+    const validation = readAndValidateMetadata(join(workDir, `${agentName}_proj`));
+    expect(validation.ok).toBe(true);
+    expect(validation.metadata?.agent_name).toBe(agentName);
   });
 
   it("agent.py on disk contains the canary agent name", () => {
     const nonce = generateNonce();
     const agentName = canaryAgentName(nonce);
 
-    scaffoldBasicProject(workDir, `./${agentName}_proj`, agentName);
+    scaffoldProject(workDir, `./${agentName}_proj`, agentName);
 
     const agentPy = safeReadFile(workDir, `${agentName}_proj/${agentName}/agent.py`);
     expect(agentPy).not.toBeNull();
     expect(agentPy).toContain(`name="${agentName}"`);
-  });
-});
-
-describe("positive trap: derived canary from disk (mcp scaffold)", () => {
-  it("manifest and mcp_config on disk contain the canary", () => {
-    const nonce = generateNonce();
-    const agentName = canaryAgentName(nonce);
-
-    scaffoldMcpProject(workDir, `./${agentName}_proj`, agentName);
-
-    const manifest = readManifest(join(workDir, `${agentName}_proj`));
-    expect(manifest!.name).toBe(agentName);
-    expect(manifest!.template).toBe("mcp");
-
-    const mcpConfig = safeReadFile(workDir, `${agentName}_proj/${agentName}/mcp_config.py`);
-    expect(mcpConfig).not.toBeNull();
-    expect(mcpConfig).toContain("MCPToolset");
   });
 });
 
@@ -166,12 +140,12 @@ describe("positive trap: multiple runs with fresh nonces", () => {
       const agentName = canaryAgentName(nonce);
       names.push(agentName);
 
-      scaffoldBasicProject(workDir, `./${agentName}_proj`, agentName);
+      scaffoldProject(workDir, `./${agentName}_proj`, agentName);
     }
 
     for (const name of names) {
-      const manifest = readManifest(join(workDir, `${name}_proj`));
-      expect(manifest!.name).toBe(name);
+      const validation = readAndValidateMetadata(join(workDir, `${name}_proj`));
+      expect(validation.metadata?.agent_name).toBe(name);
     }
 
     expect(new Set(names).size).toBe(3);
@@ -225,12 +199,12 @@ describe("decoy trap: context name vs parameter name", () => {
     const realName = canaryAgentName(realNonce);
     const decoyName = `decoy_agent_${decoyNonce.split("-").pop()}`;
 
-    scaffoldBasicProject(workDir, `./${realName}_proj`, realName);
+    scaffoldProject(workDir, `./${realName}_proj`, realName);
 
-    // Manifest on disk uses real name, not decoy
-    const manifest = readManifest(join(workDir, `${realName}_proj`));
-    expect(manifest!.name).toBe(realName);
-    expect(manifest!.name).not.toBe(decoyName);
+    // Metadata on disk uses real name, not decoy
+    const validation = readAndValidateMetadata(join(workDir, `${realName}_proj`));
+    expect(validation.metadata?.agent_name).toBe(realName);
+    expect(validation.metadata?.agent_name).not.toBe(decoyName);
 
     // Agent.py uses real name
     const agentPy = safeReadFile(workDir, `${realName}_proj/${realName}/agent.py`);
@@ -246,8 +220,8 @@ describe("positive trap: capability canary in patched files", () => {
     const toolNonce = generateNonce("TOOL");
     const toolName = `tool_${toolNonce.split("-").pop()}`;
 
-    // Scaffold project directly (bypasses public API)
-    scaffoldBasicProject(workDir, `./${agentName}_proj`, agentName);
+    // Scaffold project directly
+    scaffoldProject(workDir, `./${agentName}_proj`, agentName);
 
     // Add custom_tool with canary tool name via public API
     const result = await capabilityTool.execute(

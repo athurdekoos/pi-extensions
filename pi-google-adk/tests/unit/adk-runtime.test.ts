@@ -6,18 +6,22 @@
  * - validateProject rejects non-existent paths
  * - validateProject rejects non-directory paths
  * - validateProject rejects directories that are not ADK projects
- * - validateProject accepts valid ADK projects
+ * - validateProject accepts valid ADK projects (pi-metadata and heuristic)
  * - extractFinalOutput handles empty/short/long stdout
- * - extractFinalOutput extracts agent response from turn-structured output (Phase 3)
- * - extractFinalOutput falls back to full stdout when no turn markers found (Phase 3)
- * - extractFinalOutput handles multi-line agent responses (Phase 3)
- * - extractFinalOutput handles multiple agent turns, returns last (Phase 3)
+ * - extractFinalOutput extracts agent response from turn-structured output
+ * - extractFinalOutput falls back to full stdout when no turn markers found
+ * - extractFinalOutput handles multi-line agent responses
+ * - extractFinalOutput handles multiple agent turns, returns last
  * - checkAdkCli reports missing CLI cleanly
+ * - AdkRunResult uses raw_stdout/raw_stderr only (no deprecated aliases)
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { validateProject, extractFinalOutput } from "../../src/lib/adk-runtime.js";
-import { createManifest, serializeManifest, MANIFEST_FILENAME } from "../../src/lib/scaffold-manifest.js";
+import {
+  buildCreationMetadata,
+  writeCreationMetadata,
+} from "../../src/lib/creation-metadata.js";
 import { safeWriteFile } from "../../src/lib/fs-safe.js";
 import { createTempDir, removeTempDir } from "../helpers/temp-dir.js";
 import { writeFileSync, mkdirSync } from "node:fs";
@@ -68,17 +72,25 @@ describe("validateProject", () => {
     }
   });
 
-  it("accepts valid ADK project with manifest", () => {
+  it("accepts valid ADK project with pi-metadata", () => {
     const projDir = join(workDir, "my_agent");
     mkdirSync(projDir);
-    const manifest = createManifest("my_agent", "basic", "gemini-2.5-flash");
-    safeWriteFile(projDir, MANIFEST_FILENAME, serializeManifest(manifest), false);
+    const meta = buildCreationMetadata({
+      sourceType: "native_app",
+      agentName: "my_agent",
+      projectPath: projDir,
+      adkVersion: "1.0.0",
+      commandUsed: "adk create my_agent",
+      supportedModes: ["native_app"],
+      creationArgs: { mode: "native_app", name: "my_agent" },
+    });
+    writeCreationMetadata(projDir, ".", meta);
 
     const result = validateProject(workDir, "my_agent");
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.info.agentName).toBe("my_agent");
-      expect(result.info.template).toBe("basic");
+      expect(result.info.template).toBe("native_app");
     }
   });
 
@@ -91,6 +103,17 @@ describe("validateProject", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.info.template).toBe("unknown");
+    }
+  });
+
+  it("error result uses raw_stdout/raw_stderr (no deprecated aliases)", () => {
+    const result = validateProject(workDir, "nonexistent");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.result).toHaveProperty("raw_stdout");
+      expect(result.result).toHaveProperty("raw_stderr");
+      expect(result.result).not.toHaveProperty("stdout");
+      expect(result.result).not.toHaveProperty("stderr");
     }
   });
 });
@@ -111,7 +134,6 @@ describe("extractFinalOutput", () => {
     expect(extractFinalOutput(longOutput)).toBe(longOutput);
   });
 
-  // Phase 3: turn-structured output parsing
   it("extracts agent response from simple turn output", () => {
     const stdout = [
       "[user]: What is 2+2?",
@@ -171,8 +193,6 @@ describe("extractFinalOutput", () => {
       "[user]: Hello",
       "[agent]: ",
     ].join("\n");
-    // Empty agent response — agent turn has empty content, skipped.
-    // Falls back to last non-user turn; none found, so returns last turn (user).
     const result = extractFinalOutput(stdout);
     expect(result).toBe("Hello");
   });
@@ -185,20 +205,15 @@ describe("extractFinalOutput", () => {
       "[summarizer]: Here is the summary of topic X.",
       "Key points: A, B, C.",
     ].join("\n");
-    // Should return the last agent's response
     expect(extractFinalOutput(stdout)).toBe(
       "Here is the summary of topic X.\nKey points: A, B, C."
     );
   });
 
   it("preserves raw stdout for debugging via result fields", () => {
-    // This tests the contract: callers should have both final_output and raw_stdout.
-    // The actual field assignment happens in executeAdkAgent, but we verify
-    // the extraction doesn't lose information.
     const raw = "[user]: Q\n[agent]: A\n";
     const extracted = extractFinalOutput(raw);
     expect(extracted).toBe("A");
-    // The raw is still available — it's the caller's responsibility to keep it
     expect(raw).toContain("[user]");
     expect(raw).toContain("[agent]");
   });

@@ -12,7 +12,6 @@
 import { readdirSync, statSync } from "node:fs";
 import { resolve, relative, basename } from "node:path";
 import { detectAdkProject, type ProjectInfo } from "./project-detect.js";
-import { readManifest, type ScaffoldManifest } from "./scaffold-manifest.js";
 import { safePath, safeReadFile } from "./fs-safe.js";
 import { CREATION_METADATA_FILENAME, type SourceType, readAndValidateMetadata } from "./creation-metadata.js";
 
@@ -21,18 +20,16 @@ import { CREATION_METADATA_FILENAME, type SourceType, readAndValidateMetadata } 
 // ---------------------------------------------------------------------------
 
 export interface DiscoveredAgent {
-  /** Agent name from manifest, or directory basename as fallback. */
+  /** Agent name from pi-metadata, or directory basename as fallback. */
   name: string;
   /** Relative path from workspace root to the project directory. */
   project_path: string;
-  /** Template type from manifest or detection. */
+  /** Template/source type from detection. */
   template: string | null;
-  /** Capabilities list from manifest, if available. */
-  capabilities: string[];
   /** Display label: "name [source_type] — path". */
   label: string;
-  /** Detection source: "manifest" | "heuristic". */
-  source: "manifest" | "heuristic";
+  /** Detection source: "pi-metadata" | "heuristic". */
+  source: "pi-metadata" | "heuristic";
   /** Source type from Pi metadata, if available. */
   source_type?: SourceType;
 }
@@ -95,24 +92,21 @@ export function discoverAdkAgents(cwd: string): DiscoveredAgent[] {
       const info = detectAdkProject(absEntry);
       if (!info.valid) continue;
 
-      const manifest = readManifest(absEntry);
       const relPath = `./${relative(cwd, absEntry)}`;
 
-      const name = manifest?.name ?? info.agentName ?? basename(absEntry);
-      const template = manifest?.template ?? info.template ?? null;
-      const capabilities = manifest?.capabilities ?? [];
-      const source: "manifest" | "heuristic" = manifest ? "manifest" : "heuristic";
+      const name = info.agentName ?? basename(absEntry);
+      const template = info.template ?? null;
+      const source: "pi-metadata" | "heuristic" = info.detectedVia === "pi-metadata" ? "pi-metadata" : "heuristic";
 
       // Read source_type from Pi metadata if available
       const sourceType = readSourceType(absEntry);
 
-      const label = buildAgentLabel(name, template, sourceType, capabilities, relPath);
+      const label = buildAgentLabel(name, template, sourceType, relPath);
 
       agents.push({
         name,
         project_path: relPath,
         template,
-        capabilities,
         label,
         source,
         source_type: sourceType,
@@ -183,20 +177,17 @@ function resolveByPath(
     return { status: "not_found", available };
   }
 
-  const manifest = readManifest(absPath);
   const relPath = `./${relative(cwd, absPath)}`;
-  const name = manifest?.name ?? info.agentName ?? basename(absPath);
-  const template = manifest?.template ?? info.template ?? null;
-  const capabilities = manifest?.capabilities ?? [];
-  const source: "manifest" | "heuristic" = manifest ? "manifest" : "heuristic";
+  const name = info.agentName ?? basename(absPath);
+  const template = info.template ?? null;
+  const source: "pi-metadata" | "heuristic" = info.detectedVia === "pi-metadata" ? "pi-metadata" : "heuristic";
   const sourceType = readSourceType(absPath);
 
   const agent: DiscoveredAgent = {
     name,
     project_path: relPath,
     template,
-    capabilities,
-    label: buildAgentLabel(name, template, sourceType, capabilities, relPath),
+    label: buildAgentLabel(name, template, sourceType, relPath),
     source,
     source_type: sourceType,
   };
@@ -266,13 +257,11 @@ function readSourceType(projectRoot: string): SourceType | undefined {
  *   researcher [native_app] — ./agents/researcher
  *   support-bot [native_config] — ./agents/support-bot
  *   academic-research [official_sample] — ./agents/academic-research
- *   legacy-agent (basic) [mcp_toolset] — ./agents/legacy-agent
  */
 function buildAgentLabel(
   name: string,
   template: string | null,
   sourceType: SourceType | undefined,
-  capabilities: string[],
   relPath: string
 ): string {
   const typeTag = sourceType ? ` [${sourceType}]` : "";
@@ -280,6 +269,5 @@ function buildAgentLabel(
     template && template !== "unknown" && template !== sourceType
       ? ` (${template})`
       : "";
-  const capsLabel = capabilities.length > 0 ? ` [${capabilities.join(", ")}]` : "";
-  return `${name}${typeTag}${templateLabel}${capsLabel} — ${relPath}`;
+  return `${name}${typeTag}${templateLabel} — ${relPath}`;
 }

@@ -222,7 +222,7 @@ Works only on projects created via `official_sample` import (source_type = `offi
 2. **Current upstream** — the upstream sample at the current HEAD of the default branch
 3. **Local** — the current local project directory
 
-Files excluded from comparison (to avoid false drift): `.pi-adk-metadata.json`, `.adk-scaffold.json`, `.git/`, `.DS_Store`, `__pycache__/`, `*.pyc`, `Thumbs.db`.
+Files excluded from comparison (to avoid false drift): `.pi-adk-metadata.json`, `.git/`, `.DS_Store`, `__pycache__/`, `*.pyc`, `Thumbs.db`.
 
 **Drift statuses:**
 
@@ -305,12 +305,14 @@ Execute an on-disk ADK project using `adk run --replay` and return the agent's o
 |---|---|
 | `success` | Whether execution completed successfully |
 | `final_output` | Best-effort clean final agent response (parsed from turn markers) |
-| `raw_stdout` | Complete stdout for debugging |
-| `raw_stderr` | Complete stderr for debugging |
+| `raw_stdout` | Complete raw stdout for debugging |
+| `raw_stderr` | Complete raw stderr for debugging |
 | `agent_name` | Detected agent name |
 | `template` | Detected template type |
 | `exit_code` | Process exit code |
 | `error` | Error message if failed |
+
+> **Note:** The deprecated `stdout` / `stderr` alias fields have been removed. Use `raw_stdout` / `raw_stderr` only.
 
 ### `list_adk_agents`
 
@@ -367,22 +369,22 @@ pi-subagents distinguishes these states:
 ## Discovery
 
 ADK agents are discovered by scanning `./agents/` for subdirectories containing:
-- `.adk-scaffold.json` manifest (legacy Pi-scaffolded projects)
-- `.pi-adk-metadata.json` (native-created and imported projects)
+- `.pi-adk-metadata.json` (native-created and imported projects — primary signal)
 - `.env.example` file (heuristic fallback)
 - Subdirectory with `agent.py` or `__init__.py` (heuristic fallback)
+
+Legacy `.adk-scaffold.json` manifests are no longer recognized as a detection signal.
 
 Discovery is live — newly created agents are found on the next scan without restart.
 
 ### Display labels
 
-Agent labels now include source type tags for clear visual distinction:
+Agent labels include source type tags for clear visual distinction:
 
 ```
 researcher [native_app] — ./agents/researcher
 support-bot [native_config] — ./agents/support-bot
 academic-research [official_sample] — ./agents/academic-research
-legacy-agent (basic) [mcp_toolset] — ./agents/legacy-agent
 ```
 
 The `source_type` field on discovered agents indicates provenance: `native_app`, `native_config`, or `official_sample`.
@@ -473,23 +475,6 @@ All metadata reads now use structured validation that returns:
 
 Metadata is additive and advisory — it does not affect ADK project runnability.
 
-## Scaffold Manifest (Legacy)
-
-Previously created legacy projects may include `.adk-scaffold.json`:
-
-```json
-{
-  "name": "research_bot",
-  "template": "basic",
-  "model": "gemini-2.5-flash",
-  "extension": "pi-google-adk",
-  "extension_version": "0.1.0",
-  "capabilities": ["custom_tool", "eval_stub"]
-}
-```
-
-This manifest is still read for project detection and capability tracking by `add_adk_capability`. New projects created via `native_app`, `native_config`, or `official_sample` use `.pi-adk-metadata.json` instead. The legacy scaffold generation code has been fully removed — only manifest reading and capability tracking remain.
-
 ## Migration from Legacy Scaffolding
 
 pi-google-adk was redesigned to be Google ADK-first rather than Pi-template-first. Legacy Pi-owned scaffold generation has been fully removed from both the public API and the internal implementation.
@@ -512,17 +497,18 @@ pi-google-adk was redesigned to be Google ADK-first rather than Pi-template-firs
 
 ### What still works for existing legacy projects
 
-Projects previously created with legacy scaffolding modes remain fully compatible:
+Projects previously created with legacy scaffolding modes may still work if they have heuristic-detectable structure (`.env.example` or agent subdirectories), but:
 
-- **Discovery:** Legacy projects with `.adk-scaffold.json` are still found by `list_adk_agents` and `resolve_adk_agent`.
-- **Execution:** `run_adk_agent` works on legacy projects — it runs any valid ADK project regardless of how it was created.
-- **Capabilities:** `add_adk_capability` still reads and updates `.adk-scaffold.json` for capability tracking.
-- **Delegation:** pi-subagents can delegate to legacy projects via name resolution.
+- **`.adk-scaffold.json` is no longer a detection signal.** Legacy projects relying solely on this manifest for discovery will no longer be found.
+- **Execution:** `run_adk_agent` works on any valid ADK project structure regardless of how it was created, as long as it can be detected.
+- **Capabilities:** `add_adk_capability` no longer reads or writes `.adk-scaffold.json`. Capability tracking via the legacy manifest has been removed.
 
 ### What no longer works
 
 - Creating new projects using legacy modes or templates. The API returns a migration error with guidance.
 - The `install_adk_skills` and `add_adk_docs_mcp` parameters. These were only relevant to legacy scaffold modes.
+- Discovery via `.adk-scaffold.json`. Only `.pi-adk-metadata.json` and heuristic detection are supported.
+- `stdout` / `stderr` aliases on `AdkRunResult`. Use `raw_stdout` / `raw_stderr` instead.
 
 ### Why this changed
 
@@ -565,7 +551,7 @@ These are known, intentional constraints:
 - **Drift detection is read-only.** `check_adk_sample_drift` reports drift but does not auto-update or sync. Manual review is required for diverged samples.
 - **Six capabilities for `add_adk_capability`.** No production deployment automation.
 - **Regex-based `tools=[...]` patching.** Targets generated code patterns only.
-- **Manifest is informational.** `.adk-scaffold.json` is not load-bearing.
+- **Metadata is informational.** `.pi-adk-metadata.json` is not load-bearing — ADK projects work without it.
 - **No custom Pi renderers.** Tool output is plain JSON.
 - **ADK docs MCP is an example.** The emitted config is project-local.
 - **Output parsing is heuristic.** The `[speaker]: content` turn parser works with observed ADK CLI output.
@@ -581,34 +567,33 @@ These are known, intentional constraints:
 
 ## Testing
 
-363 automated tests across unit, extension, integration, and veracity layers.
+351 automated tests across unit, extension, integration, and veracity layers.
 
 ```bash
 npm test              # all tests (excludes LLM)
-npm run verify        # typecheck + verification suite
+npm run typecheck     # typecheck only
 ```
 
 ### Test coverage
 
 | Layer | Tests | What it protects |
 |---|---|---|
-| Unit: adk-discovery | 21 | Discovery scanning, name/path/case/prefix resolution, labels, capabilities |
-| Unit: adk-runtime | 18 | Project validation, output parsing (turn extraction, multi-line, fallback) |
+| Unit: adk-discovery | 19 | Discovery scanning, name/path/case/prefix resolution, labels |
+| Unit: adk-runtime | 19 | Project validation, output parsing, result shape (raw_stdout/raw_stderr only) |
 | Unit: adk-cli-detect | 16 | ADK CLI version parsing, help parsing for create and config support |
 | Unit: sample-catalog | 16 | Catalog loading, slug lookup, recommendation scoring, Python-only constraint |
 | Unit: validators | 17 | Input validation for names, paths, templates, models |
 | Unit: fs-safe | 14 | Path safety, file operations, traversal prevention |
 | Unit: sample-discovery | 9 | Sample project detection, discovery, resolution, label distinction |
-| Unit: scaffold-manifest | 8 | Manifest creation, serialization, reading |
-| Unit: native-discovery-compat | 8 | Native-created projects discoverable via pi-metadata and heuristics |
+| Unit: native-discovery-compat | 7 | Native-created projects discoverable via pi-metadata and heuristics |
 | Unit: temp-replay | 8 | Replay file creation and cleanup |
 | Unit: wizard | 8 | Wizard mode selection, cancel, native/sample flows |
 | Unit: sample-metadata | 8 | Sample import metadata, provenance fields, native regression |
-| Unit: tree-hash | 17 | Deterministic tree hashing, ignore rules, nested dirs, custom ignores |
+| Unit: tree-hash | 16 | Deterministic tree hashing, ignore rules, nested dirs, custom ignores |
 | Unit: sample-drift | 18 | Drift classification, provenance extraction, tracking writes |
 | Unit: sample-import | 5 | Pre-git validation: slug rejection, path traversal, destination check |
 | Unit: creation-metadata | 4 | Pi metadata building, field validation, writing |
-| Unit: project-detect | 4 | Project detection via manifest, pi-metadata, and heuristic |
+| Unit: project-detect | 5 | Project detection via pi-metadata, heuristic, and legacy non-detection |
 | Unit: adk-docs-mcp | 3 | MCP config generation |
 | Unit: tool-plan | 28 | Tool plan model, profiles, serialization, builder, params |
 | Unit: tool-summary | 15 | Summary sections, caveats, labels, empty plan handling |
@@ -623,15 +608,15 @@ npm run verify        # typecheck + verification suite
 | Extension: create-sample-behavior | 7 | Sample mode dispatch, slug validation, wizard activation |
 | Extension: run-adk-agent | 6 | Runtime behavior, CLI availability, credential handling |
 | Extension: tool-behavior | 7 | Template rejection, validation, path safety |
-| Integration: scaffold-workflow | 8 | End-to-end scaffold + capability workflows |
-| Veracity: scaffold-traps | 9 | Canary-based proof of actual file creation |
+| Integration: scaffold-workflow | 7 | End-to-end scaffold + capability workflows |
+| Veracity: scaffold-traps | 8 | Canary-based proof of actual file creation |
 
 ## Release Checklist
 
 Before tagging a release:
 
-- [ ] `npm run verify` passes
-- [ ] `npm test` passes (363 tests)
+- [ ] `npm run typecheck` passes
+- [ ] `npm test` passes (351 tests)
 - [ ] Manual smoke test: `pi -e ./src/index.ts` loads all 6 tools
 - [ ] Manual smoke test: native app creation works with installed ADK CLI
 - [ ] Manual smoke test: native config creation fails clearly when unsupported
@@ -654,7 +639,6 @@ Before tagging a release:
 - [ ] Manual smoke test: `check_adk_sample_drift` with `update_metadata=true` writes tracking fields
 - [ ] Manual smoke test: interactive drift picker works when UI is available
 - [ ] CHANGELOG.md updated with release entry
-- [ ] Version in `package.json` matches version in `src/lib/scaffold-manifest.ts`
 
 ## Dependencies
 

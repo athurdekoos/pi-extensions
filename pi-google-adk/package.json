@@ -5,7 +5,7 @@
   "type": "module",
   "license": "MIT",
   "keywords": ["pi-package", "google-adk", "agent", "scaffolding"],
-  "files": ["src", "scripts", "README.md", "CHANGELOG.md"],
+  "files": ["src", "README.md", "CHANGELOG.md"],
   "dependencies": {
     "@mariozechner/pi-coding-agent": "latest",
     "@sinclair/typebox": "latest"
@@ -16,7 +16,6 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "verify": "tsc --noEmit && npx tsx scripts/verify.ts",
     "test": "vitest run --exclude 'tests/llm/**'",
     "test:all": "vitest run",
     "test:unit": "vitest run tests/unit/",

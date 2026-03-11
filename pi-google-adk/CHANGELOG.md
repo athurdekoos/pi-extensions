@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.0.0 — Breaking: Legacy compatibility removal
+
+### Breaking changes
+
+- **`scaffold-manifest.ts` deleted.** The `.adk-scaffold.json` manifest module is fully removed. No new manifests are created and no existing manifests are read.
+- **`.adk-scaffold.json` no longer a detection signal.** Project detection, discovery, and resolution no longer recognize `.adk-scaffold.json`. Only `.pi-adk-metadata.json` and heuristic detection (`.env.example`, agent subdirectories) are supported.
+- **Deprecated `stdout` / `stderr` aliases removed from `AdkRunResult`.** Only `raw_stdout` and `raw_stderr` remain. Callers using the deprecated aliases must migrate.
+- **`capabilities` field removed from `DiscoveredAgent`.** The `capabilities` list was populated only from the legacy manifest; it has been removed from the discovery result type.
+- **`source` field on `DiscoveredAgent` changed.** Now `"pi-metadata" | "heuristic"` instead of `"manifest" | "heuristic"`.
+- **`add_adk_capability` no longer writes to `.adk-scaffold.json`.** Capability additions still work but do not update any manifest file.
+- **`scripts/verify.ts` and `npm run verify` removed.** The legacy verification script referenced removed template-based scaffolding. Use `npm run typecheck` and `npm test` instead.
+- **`scripts/` directory removed from package distribution.**
+
+### What is NOT affected
+
+- `native_app`, `native_config`, and `official_sample` creation modes work exactly as before
+- Discovery via `.pi-adk-metadata.json` is unchanged
+- Heuristic detection via `.env.example` and agent subdirectories is unchanged
+- Runtime execution, drift detection, delegation, and tool planning are unchanged
+- Legacy mode/template migration errors still work (Phase A behavior preserved)
+
+### Migration guidance
+
+| Old usage | Replacement |
+|---|---|
+| `result.stdout` / `result.stderr` | `result.raw_stdout` / `result.raw_stderr` |
+| Detection via `.adk-scaffold.json` | Use `.pi-adk-metadata.json` or ensure heuristic signals exist |
+| `agent.capabilities` from discovery | No replacement — capability tracking via manifest is removed |
+| `npm run verify` | `npm run typecheck && npm test` |
+
+### Tests
+
+- 351 automated tests (down from 363; removed 8 scaffold-manifest tests, 4 legacy manifest integration tests, updated remaining tests)
+- Added negative test proving `.adk-scaffold.json` alone is not a detection signal
+- Added test proving `AdkRunResult` has no deprecated `stdout`/`stderr` aliases
+- All discovery/detection/runtime/integration/veracity tests updated to use `.pi-adk-metadata.json`
+
 ## 0.9.1 — Phase C: Documentation and example cleanup
 
 ### Changes

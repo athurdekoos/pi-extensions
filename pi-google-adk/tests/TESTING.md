@@ -10,8 +10,7 @@ Fast, isolated tests for pure logic and helpers. No filesystem side effects beyo
 |------|-------------------|
 | `validators.test.ts` | Agent/tool name validation, template/capability type guards |
 | `fs-safe.test.ts` | Path traversal prevention, write/read/exists with overwrite semantics |
-| `scaffold-manifest.test.ts` | Manifest create/serialize/read round-trip, capability tracking, idempotency |
-| `project-detect.test.ts` | Project detection from manifest, heuristic fallback, malformed data |
+| `project-detect.test.ts` | Project detection from pi-metadata, heuristic fallback, legacy non-detection |
 | `adk-docs-mcp.test.ts` | MCP config JSON validity, server name, command, and URL |
 
 ### Layer 2 — Extension tests (`tests/extension/`)
@@ -30,7 +29,7 @@ End-to-end workflows using real tool execute calls and real filesystem.
 
 | File | Behavior protected |
 |------|-------------------|
-| `scaffold-workflow.test.ts` | Create then add capability (custom_tool, eval_stub, deploy_stub, observability_notes, sequential_workflow, mcp_toolset); manifest accumulation; idempotent capability re-add |
+| `scaffold-workflow.test.ts` | Create then add capability (custom_tool, eval_stub, deploy_stub, observability_notes, sequential_workflow, mcp_toolset); idempotent capability re-add |
 
 ### Layer 4 — Veracity traps (`tests/veracity/`)
 
@@ -38,13 +37,16 @@ Prove tool results structurally depend on actual execution.
 
 | File | Behavior protected |
 |------|-------------------|
-| `scaffold-traps.test.ts` | Positive traps (canary in files_created, manifest, agent.py), derived canary (disk vs result cross-check), multiple fresh nonces, negative traps (invalid input, path traversal, non-project), decoy trap (parameter name vs context name), capability canary in patched files |
+| `scaffold-traps.test.ts` | Positive traps (canary in files_created, pi-metadata, agent.py), multiple fresh nonces, negative traps (invalid input, path traversal, non-project), decoy trap (parameter name vs context name), capability canary in patched files |
 
 ## Running Tests
 
 ```bash
 # All tests (excluding LLM)
 npm test
+
+# Typecheck only
+npm run typecheck
 
 # By layer
 npm run test:unit
@@ -61,7 +63,7 @@ npm run test:watch
 ### Unit tests
 - Pure functions produce correct outputs for valid, invalid, and edge-case inputs.
 - Path traversal is blocked deterministically.
-- Manifests serialize and deserialize correctly.
+- Pi metadata is written and validated correctly.
 
 ### Extension tests
 - The extension registers exactly the expected tools with correct schemas.
@@ -71,13 +73,12 @@ npm run test:watch
 
 ### Integration tests
 - Multi-step workflows (create + add capability) produce correct file structures.
-- Manifest tracking accumulates capabilities across operations.
 - Idempotent re-add does not create duplicates.
 - All six capabilities (custom_tool, mcp_toolset, sequential_workflow, eval_stub, deploy_stub, observability_notes) produce the expected files.
 
 ### Veracity traps
 - Tool results structurally depend on unique per-test canary inputs.
-- Manifest and agent.py on disk contain the canary-derived values.
+- Pi metadata and agent.py on disk contain the canary-derived values.
 - Decoy names in context do not leak into results.
 - Failed operations do not fabricate success or file paths.
 - Multiple runs with fresh nonces produce distinct, correct results.

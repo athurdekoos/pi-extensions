@@ -12,7 +12,6 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { safeWriteFile, safeReadFile, safeExists, type WriteResult } from "../lib/fs-safe.js";
 import { detectAdkProject } from "../lib/project-detect.js";
 import { validateToolName } from "../lib/validators.js";
-import { addCapabilityToManifest } from "../lib/scaffold-manifest.js";
 
 export const AddAdkCapabilityParams = Type.Object({
   project_path: Type.String({ description: "Path to the ADK project root" }),
@@ -90,7 +89,7 @@ export function registerAddAdkCapability(pi: ExtensionAPI): void {
         return errorResult(
           projectPath,
           capability,
-          "Could not determine agent name. Ensure the project has a .adk-scaffold.json marker or a recognizable agent directory."
+          "Could not determine agent name. Ensure the project has a .pi-adk-metadata.json file or a recognizable agent directory."
         );
       }
 
@@ -117,12 +116,6 @@ export function registerAddAdkCapability(pi: ExtensionAPI): void {
             break;
           default:
             return errorResult(projectPath, capability, `Unknown capability: ${capability}`);
-        }
-
-        // Record the capability in the scaffold manifest
-        const details = result.details as CapabilityResult;
-        if (details.ok) {
-          addCapabilityToManifest(cwd, projectPath, capability);
         }
 
         return result;

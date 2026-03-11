@@ -512,8 +512,7 @@ function makeErrorResult(
   message: string,
 ): DriftCheckResult {
   return {
-    success: status !== "error" && status !== "git_unavailable" && status !== "upstream_unavailable"
-      ? false : false,
+    success: false,
     status,
     project_path: projectPath,
     source_type: "",

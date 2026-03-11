@@ -22,10 +22,6 @@ export interface AdkRunResult {
   raw_stdout: string;
   /** Complete raw stderr for debugging. */
   raw_stderr: string;
-  /** @deprecated Use raw_stdout. Alias kept for backward compat. */
-  stdout: string;
-  /** @deprecated Use raw_stderr. Alias kept for backward compat. */
-  stderr: string;
   exit_code: number | null;
   error?: string;
   timed_out?: boolean;
@@ -74,7 +70,7 @@ export function validateProject(
       ok: false,
       result: errorResult(
         projectPath,
-        info.error ?? `"${projectPath}" is not a recognized ADK project. Expected .adk-scaffold.json manifest or .env.example.`
+        info.error ?? `"${projectPath}" is not a recognized ADK project. Expected .pi-adk-metadata.json or .env.example.`
       ),
     };
   }
@@ -159,8 +155,6 @@ export async function executeAdkAgent(
           final_output: "",
           raw_stdout: stdout,
           raw_stderr: stderr,
-          stdout,
-          stderr,
           exit_code: code,
           error: `ADK agent execution timed out after ${timeoutSeconds} seconds.`,
           timed_out: true,
@@ -177,8 +171,6 @@ export async function executeAdkAgent(
           final_output: "",
           raw_stdout: stdout,
           raw_stderr: stderr,
-          stdout,
-          stderr,
           exit_code: code,
           error: `ADK agent exited with code ${code}.${stderr ? ` stderr: ${stderr.slice(0, 2000)}` : ""}`,
         });
@@ -196,8 +188,6 @@ export async function executeAdkAgent(
         final_output: finalOutput,
         raw_stdout: stdout,
         raw_stderr: stderr,
-        stdout,
-        stderr,
         exit_code: code,
       });
     };
@@ -348,8 +338,6 @@ function errorResult(projectPath: string, error: string): AdkRunResult {
     final_output: "",
     raw_stdout: "",
     raw_stderr: "",
-    stdout: "",
-    stderr: "",
     exit_code: null,
     error,
   };

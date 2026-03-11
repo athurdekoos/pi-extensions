@@ -55,7 +55,7 @@ pi-google-adk/
       sample-catalog.ts         # curated official sample catalog
       sample-drift.ts           # drift detection logic
       sample-import.ts          # git-based sample import
-      scaffold-manifest.ts      # .adk-scaffold.json manifest reading (legacy compat only)
+      # scaffold-manifest.ts removed (legacy compat fully removed)
       temp-replay.ts            # temp replay file for adk run --replay
       tool-detect.ts            # extension tool detection
       tool-plan.ts              # tool plan model and builder
@@ -70,8 +70,7 @@ pi-google-adk/
       list-adk-agents.ts        # discover agents in workspace
       resolve-adk-agent.ts      # resolve name/path to specific agent
       check-adk-sample-drift.ts # detect drift on imported samples
-  scripts/
-    verify.ts
+  # scripts/ directory removed (verify.ts deleted)
   tests/
     helpers/
     unit/
@@ -94,12 +93,12 @@ pi-google-adk/
 1. All paths are validated to stay within the workspace root. Path traversal is blocked.
 2. Files are never overwritten unless `overwrite: true` is explicitly set.
 3. No global config, credentials, or files outside the workspace are read or written.
-4. `run_adk_agent` always returns both `final_output` (parsed) and `raw_stdout`/`raw_stderr` (complete).
+4. `run_adk_agent` always returns both `final_output` (parsed) and `raw_stdout`/`raw_stderr` (complete). The deprecated `stdout`/`stderr` aliases have been removed.
 5. `extractFinalOutput` never throws; it falls back to trimmed stdout on any parsing uncertainty.
 6. Discovery scans `./agents/` only, one level deep. No recursive traversal.
 7. Resolution order: path first (if query contains `/` or starts with `.`), then exact name, case-insensitive, prefix. Ambiguity is never silently resolved.
 8. `registerSafeToolForSubagents` works regardless of load order relative to pi-subagents.
-9. Scaffold manifest (`.adk-scaffold.json`) is read-only for legacy compatibility; deleting it does not break the project. No new manifests are created.
+9. `.adk-scaffold.json` support has been fully removed. It is no longer read, written, or treated as a project signal.
 
 ## Cross-Extension Integration
 
@@ -136,23 +135,23 @@ Document registered tools, commands, hooks, and widgets in `README.md`.
 
 ## Testing Rules
 
-363 automated tests across unit, extension, integration, and veracity layers.
+351 automated tests across unit, extension, integration, and veracity layers.
 
 ### Running
 
 ```bash
 npm test              # all tests (excludes LLM)
-npm run verify        # typecheck + verification suite
+npm run typecheck     # typecheck only
 ```
 
 ### Layer summary
 
 | Layer | Tests | Speed |
 |---|---|---|
-| Unit | 279 | fast |
+| Unit | 263 | fast |
 | Extension | 67 | fast |
-| Integration | 8 | fast |
-| Veracity | 9 | fast |
+| Integration | 7 | fast |
+| Veracity | 8 | fast |
 
 ### When to add tests
 
@@ -173,7 +172,7 @@ Before finishing work in this extension:
 4. verify no obvious unsafe shell interpolation or path handling bugs
 5. update `README.md` if behavior or setup changed
 6. update `CHANGELOG.md` for user-visible changes
-7. run `npm test` and verify all 363 tests pass
+7. run `npm test` and verify all 351 tests pass
 8. provide a concrete manual test path using Pi
 
 Preferred manual run path:
@@ -193,7 +192,7 @@ pi -e ./src/index.ts
 ## Definition of Done
 A change in this extension is done when:
 - behavior matches the request
-- `npm test` passes (363 tests)
+- `npm test` passes (351 tests)
 - new tests protect intended behavior
 - documentation is updated if needed
 - no obvious dead code or placeholder comments remain
@@ -205,4 +204,4 @@ A change in this extension is done when:
 - Required CLI tools: `adk` (from `pip install google-adk`) for `run_adk_agent` only.
 - The generated projects require Python 3.10+ and a Google API key.
 - The `agents/` directory at the workspace root is the default output and discovery target.
-- The `stdout`/`stderr` fields on `AdkRunResult` are deprecated aliases for `raw_stdout`/`raw_stderr`. Callers should migrate.
+- The deprecated `stdout`/`stderr` aliases on `AdkRunResult` have been removed. Only `raw_stdout`/`raw_stderr` are supported.

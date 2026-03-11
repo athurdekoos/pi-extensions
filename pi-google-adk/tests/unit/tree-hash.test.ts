@@ -137,16 +137,6 @@ describe("hashDirectoryTree", () => {
     expect(h1).toBe(h2);
   });
 
-  it("ignores .adk-scaffold.json by default", () => {
-    writeFile("agent.py", "code");
-    const h1 = hashDirectoryTree(tempDir).hash;
-
-    writeFile(".adk-scaffold.json", '{"name":"test"}');
-    const h2 = hashDirectoryTree(tempDir).hash;
-
-    expect(h1).toBe(h2);
-  });
-
   it("handles nested directory trees", () => {
     writeFile("a/b/c.txt", "deep");
     writeFile("a/d.txt", "shallow");
@@ -199,7 +189,6 @@ describe("DEFAULT_IGNORE_BASENAMES", () => {
     expect(DEFAULT_IGNORE_BASENAMES.has(".git")).toBe(true);
     expect(DEFAULT_IGNORE_BASENAMES.has(".DS_Store")).toBe(true);
     expect(DEFAULT_IGNORE_BASENAMES.has("__pycache__")).toBe(true);
-    expect(DEFAULT_IGNORE_BASENAMES.has(".adk-scaffold.json")).toBe(true);
   });
 });
 
