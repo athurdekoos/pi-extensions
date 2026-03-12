@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "planMode": false,
+  "debugMode": false,
+  "status": "off",
+  "currentPlanPath": ".pi/plans/current.md",
+  "lastValidatedAt": null,
+  "lastKnownSlug": null
+}

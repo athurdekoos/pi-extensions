@@ -1,1 +1,8 @@
 node_modules/
+
+# Planning runtime state (local to each developer, not committed)
+.pi/planning-state.json
+
+# Planning debug artifacts (runtime, not committed — recursive)
+.pi/plans/debug/**
+!.pi/plans/debug/.gitkeep
