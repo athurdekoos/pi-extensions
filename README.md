@@ -6,6 +6,7 @@ A collection of extensions for [`@mariozechner/pi-coding-agent`](https://github.
 
 | Extension | Description | Status |
 |-----------|-------------|--------|
+| [pi-plan](./pi-plan/) | Repo-local planning workflow: `/plan` and `/plan-debug` commands with template-driven generation, archive lifecycle, and diagnostics | Ready |
 | [pi-clear](./pi-clear/) | `/clear` command to start a fresh session, optionally carrying over the editor draft | Ready |
 | [pi-gh](./pi-gh/) | Structured GitHub CLI tools for issues, PRs, Actions, and repo info | Ready |
 | [pi-google-adk](./pi-google-adk/) | Create, import, discover, resolve, and run Python-first Google ADK agent projects | In Work |
@@ -145,10 +146,17 @@ All advice is advisory. User-provided `safeCustomTools` are authoritative and ne
 Load any extension directly:
 
 ```bash
+pi -e ./pi-plan
 pi -e ./pi-clear/index.ts
 pi -e ./pi-gh/index.ts
 pi -e ./pi-subagents/index.ts
 pi -e ./pi-google-adk/src/index.ts
+```
+
+Or install via Pi:
+
+```bash
+pi install /path/to/pi-extensions/pi-plan
 ```
 
 Or install globally for auto-discovery:
@@ -165,6 +173,12 @@ cp -r pi-clear/ /path/to/project/.pi/extensions/pi-clear/
 ```
 
 ## Extension summaries
+
+### pi-plan
+
+Adds `/plan` and `/plan-debug` commands for repo-local planning. Detects the current git repo, initializes a `.pi/` planning structure, and provides a four-state workflow: initialization, plan creation with template-driven generation, active plan management (resume/replace/revisit), and archive lifecycle. Supports inline goal passthrough, explicit placeholder substitution (`{{GOAL}}`, `{{REPO_ROOT}}`, `{{CURRENT_STATE}}`), lightweight repo-local config, and deterministic index reconciliation.
+
+308 automated tests. Requires `@mariozechner/pi-coding-agent`, `@sinclair/typebox`, and Git.
 
 ### pi-clear
 
@@ -251,6 +265,10 @@ pi-extensions/
   templates-for-dir.md                     # AGENTS.md template for new extensions
   pi-cli-extension-testing-requirements.md # repository testing standard
   .gitignore
+  .pi/                                     # repo-local planning workspace (see below)
+  pi-plan/                                 # ← canonical shareable planning package
+    index.ts, orchestration.ts, plangen.ts, archive.ts, ...
+    package.json, README.md, tests/
   pi-clear/
     AGENTS.md, package.json, index.ts, README.md
   pi-gh/
@@ -276,6 +294,14 @@ pi-extensions/
 ```
 
 Each extension is independent. Cross-extension integration uses the globalThis safe tool registry and the shared metadata schema contract.
+
+### About the root `.pi/` directory
+
+The `.pi/` directory at the repo root is this repository's own repo-local planning workspace — it is **not** the distributable `pi-plan` package.
+
+It contains planning protocol definitions, plan files, and documentation used to develop and maintain the `pi-extensions` repository itself. It also includes a historical planning-protocol extension (`.pi/legacy/planning-protocol.ts`) that predates the `pi-plan` package — moved out of `.pi/extensions/` to prevent auto-loading.
+
+Users who want to install the planning extension should use `pi-plan/`, not the root `.pi/` directory. See the [pi-plan README](./pi-plan/README.md) for installation instructions.
 
 ## Adding a new extension
 

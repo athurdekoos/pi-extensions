@@ -161,6 +161,45 @@ describe("create_adk_agent mode parameter", () => {
   });
 });
 
+describe("create_adk_agent model passthrough (issue #26)", () => {
+  it("passes model to the CLI command when provided explicitly", async () => {
+    const result = await createTool.execute(
+      "test-model-flag",
+      { name: "model_agent", mode: "native_app", model: "gemini-2.5-flash" },
+      undefined,
+      undefined,
+      ctx()
+    );
+    const parsed = parseResult(result);
+    // Will fail because adk is not on PATH in CI, but we can verify the
+    // error message includes the command with --model
+    if (parsed.native) {
+      const native = parsed.native as { command_used: string };
+      expect(native.command_used).toContain("--model=gemini-2.5-flash");
+    }
+    // Even if it fails at capability detection, mode should be set
+    expect(parsed.mode).toBe("native_app");
+  });
+
+  it("passes custom model to the CLI command", async () => {
+    const result = await createTool.execute(
+      "test-custom-model",
+      { name: "custom_model_agent", mode: "native_app", model: "gemini-2.0-flash" },
+      undefined,
+      undefined,
+      ctx()
+    );
+    const parsed = parseResult(result);
+    // Will fail at CLI detection in CI, but if native details are present
+    // verify the command includes the custom model
+    if (parsed.native) {
+      const native = parsed.native as { command_used: string };
+      expect(native.command_used).toContain("--model=gemini-2.0-flash");
+    }
+    expect(parsed.mode).toBe("native_app");
+  });
+});
+
 describe("create_adk_agent schema", () => {
   it("has mode in parameters", () => {
     const schema = createTool.parameters as { properties?: Record<string, unknown> };

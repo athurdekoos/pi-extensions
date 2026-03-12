@@ -1,6 +1,12 @@
-# `.pi/` — Repo-Local Pi Resources
+# `.pi/` — Repo-Local Planning Workspace
 
-This directory contains repo-local resources for [Pi Coding Agent](https://github.com/badlogic/pi-mono), including planning protocol definitions, plan files, and documentation.
+> **This is the repo-local planning workspace for the `pi-extensions` repository itself.**
+> It is **not** the distributable `pi-plan` package.
+>
+> The canonical shareable planning extension lives in [`pi-plan/`](../pi-plan/).
+> Users who want to install the planning extension should go there.
+
+This directory contains planning protocol definitions, plan files, and documentation used to develop and maintain the `pi-extensions` repository. Files here are normal repo-local planning artifacts — they are not part of any installable package.
 
 ## What Phase 1 Establishes
 
@@ -16,7 +22,7 @@ Phase 1 creates the filesystem protocol foundation and persistent state model fo
 
 ## What Phase 2 Added
 
-- **`.pi/extensions/planning-protocol.ts`** — Project-local Pi extension implementing:
+- **`.pi/legacy/planning-protocol.ts`** (originally `.pi/extensions/planning-protocol.ts`) — Project-local Pi extension implementing:
   - `/plan-on`, `/plan-off` — toggle planning mode with persistent state
   - `/plan-status` — show runtime state, plan validity, and system status
   - `/plan` — guided plan creation/editing for `plans/current.md`
@@ -62,11 +68,11 @@ Phase 1 creates the filesystem protocol foundation and persistent state model fo
 - **Documentation consistency pass** — Verified all docs match the actual implementation (commands, whitelist, status model, restore/resume behavior, debug events)
 - **Small operator-hardening fix** — `/plan-status` now shows explicit recovery hints when in `plan-required` state
 
-## What Later Phases Will Add
+## What Later Phases May Add (to this repo-local workspace)
+
+> **Note:** Package extraction has already happened — the canonical shareable extension is [`pi-plan/`](../pi-plan/). The items below apply to this repo-local workspace only.
 
 - **Future**: Prompt templates under `.pi/prompts/`
-- **Future**: Package extraction / npm shareable structure
-- **Future**: Integration with `pi-plan` extension for plan generation
 - **Future**: Implementation-mode unlock while planning mode is still on
 - **Future**: Archive deletion/cleanup UI
 - **Future**: Log rotation/pruning
@@ -85,11 +91,22 @@ Phase 1 creates the filesystem protocol foundation and persistent state model fo
 | `docs/OPERATOR_WORKFLOWS.md` | Operator workflows, recovery, validation checklist |
 | `planning-state.example.json` | Default state shape (reference/template) |
 
-### Committed — extension code
+### Historical / legacy reference
 
 | Path | Purpose |
 |------|---------|
-| `extensions/planning-protocol.ts` | Phase 6 planning protocol extension |
+| `legacy/planning-protocol.ts` | Historical predecessor to `pi-plan` (not auto-loaded — see note below) |
+| `legacy/README.md` | Explains why the file was moved |
+
+#### Role of `legacy/planning-protocol.ts`
+
+This file is the **repo-local predecessor** to the `pi-plan` package. It was developed through Phases 1–6 as the original planning-mode extension (a single monolithic `.ts` file implementing commands like `/plan-on`, `/plan-off`, `/plan-status`, `/plan`, tool-call whitelist enforcement, and debug logging).
+
+The canonical shareable planning extension now lives in [`pi-plan/`](../pi-plan/), which was built as a properly packaged, tested, and modular replacement.
+
+This file was moved from `.pi/extensions/` to `.pi/legacy/` to prevent Pi's project-local auto-discovery (`.pi/extensions/*.ts`) from loading it alongside `pi-plan/`. It is preserved for historical/design reference only.
+
+**For new contributors:** The canonical planning extension is `pi-plan/`. Do not move this file back to `.pi/extensions/`.
 
 ### Committed — plan artifacts
 
@@ -110,9 +127,8 @@ The live `planning-state.json` is created by the extension at runtime by copying
 
 ## Compatibility
 
-This structure is designed to be compatible with:
+This repo-local workspace structure is compatible with:
 
-- **`pi-plan` extension** — Uses the same `plans/current.md`, `plans/index.md`, and `plans/archive/` conventions
+- **`pi-plan` package** ([`../pi-plan/`](../pi-plan/)) — Uses the same `plans/current.md`, `plans/index.md`, and `plans/archive/` conventions. `pi-plan` is the canonical shareable extension; this workspace is where this repository dogfoods the planning workflow.
 - **Pi project-local resources** — Lives under `.pi/` as Pi expects
-- **Future extensions** — Extension code will go under `.pi/extensions/`
-- **Future prompt templates** — Will go under `.pi/prompts/`
+- **Future prompt templates** — May go under `.pi/prompts/`

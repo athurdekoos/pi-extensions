@@ -35,7 +35,7 @@ Local machine state created by the extension at runtime. Never committed.
 - `planning-state.json` — live toggle and status cache
 - `plans/debug/*` — diagnostic snapshots
 
-The extension (`.pi/extensions/planning-protocol.ts`) creates `planning-state.json` by copying `planning-state.example.json` on first use. If the live file is missing, the extension treats it as default state (`planMode: false`, `status: "off"`).
+The legacy extension (originally `.pi/extensions/planning-protocol.ts`, now at `.pi/legacy/planning-protocol.ts`) created `planning-state.json` by copying `planning-state.example.json` on first use. If the live file is missing, the extension treats it as default state (`planMode: false`, `status: "off"`).
 
 ## Retrieval / Read Order
 
@@ -240,6 +240,68 @@ Archived plans are stored in `archive/` with filenames: `YYYY-MM-DD-HHMM-<slug>.
 
 The index is rebuilt by scanning `current.md` and all files in `plans/archive/`. It is not a manual file.
 
+## Plan Restore/Resume Commands (Phase 5)
+
+Phase 5 adds commands to inspect, restore, and resume archived plans.
+
+### `/plan-show [archive-name|slug]`
+
+Inspect an archived plan without making it current.
+
+Behavior:
+1. Resolves the target archive by exact filename, slug match, or interactive selection.
+2. Shows plan metadata and a concise content summary.
+3. Does not mutate `current.md`, runtime state, or system status.
+
+If no argument is given, presents a selection of recent archived plans.
+
+### `/plan-restore [archive-name|slug]`
+
+Copy an archived plan back into `current.md` as a draft.
+
+Behavior:
+1. Resolves the target archive deterministically.
+2. If `current.md` contains a meaningful plan (draft/active/completed), prompts the user:
+   - Archive current plan first, then restore
+   - Replace current plan directly (discard)
+   - Cancel
+3. Copies the archived plan content into `current.md`.
+4. Mutates restored metadata: sets `status: draft`, updates `updated_at`, preserves slug.
+5. The archive file in `plans/archive/` is not modified or removed — restore is a copy, not a move.
+6. Reconciles runtime/system status (typically becomes `plan-required`).
+7. Rebuilds `plans/index.md`.
+
+After restore, use `/plan` to edit the restored plan and set it to `active` when ready.
+
+### `/plan-resume [archive-name|slug]`
+
+Restore an archived plan and immediately open the editor for revision.
+
+Behavior:
+1. Performs the same restore behavior as `/plan-restore`.
+2. Then opens the guided plan editor (same flow as `/plan`).
+3. Encourages the user to revise the restored plan before continuing.
+4. After save, validates and reconciles runtime/system status.
+5. The restored plan does not automatically become `active` — the user controls that via the metadata in the editor.
+
+### Archive Resolution Rules
+
+Archive targets are resolved deterministically:
+1. Exact filename match (with or without `.md` suffix)
+2. Exact slug match against parsed metadata
+3. If multiple archives share the same slug → ambiguous, user is presented with choices
+4. If no match → fails with a clear error
+
+When no argument is given, `/plan-show`, `/plan-restore`, and `/plan-resume` present an interactive selection of recent archived plans.
+
+### Restore Semantics
+
+- Restoring does not destroy archive files — restore is a copy into `current.md`.
+- Restored `current.md` represents working state, not historical archive state.
+- Restored metadata defaults to `status: draft` with a fresh `updated_at`.
+- Meaningful current content is never silently replaced — the user must confirm.
+- After restore, runtime/system status is usually `plan-required` (unless the user edits to `active`).
+
 ## Debug Log Location (Phase 3)
 
 Debug logs are written to `.pi/plans/debug/` when `debugMode` is true. All contents of this directory except `.gitkeep` are gitignored.
@@ -273,10 +335,16 @@ JSONL (one JSON object per line). Each entry contains:
 - `command:plan-on`, `command:plan-off`, `command:plan`, `command:plan-status`
 - `command:plan-debug-on`, `command:plan-debug-off`, `command:plan-debug`
 - `command:plan-new`, `command:plan-complete`, `command:plan-archive`, `command:plan-list`
+- `command:plan-show`, `command:plan-restore`, `command:plan-resume`
 - `tool_call` (allowed vs blocked, with tool name and reason)
 - `plan_validated` (after `/plan` or `/plan-new` saves)
 - `reconcile` (status transitions)
 - `archive_created` (after a snapshot is written to `plans/archive/`)
+- `archive_resolution` (archive target resolution results for restore/show)
+- `restore_confirmation` (which branch the user chose: archive+replace, replace, cancel)
+- `restore_cancelled` (user cancelled a restore operation)
+- `restored_metadata` (metadata transformation from archived to draft)
+- `plan_shown` (archive inspected via `/plan-show`)
 - `index_updated` (after `plans/index.md` is rebuilt)
 - `current_plan_reset` (after `current.md` is reset to the empty template)
 - `lifecycle_validation_failure` (when a lifecycle command cannot proceed)
@@ -288,7 +356,7 @@ Shows:
 - Debug directory, current log path, session log path, session ID
 - Log format description
 - Recent session log filenames
-- List of all logged event categories (including Phase 4 lifecycle events)
+- List of all logged event categories (including Phase 4 lifecycle and Phase 5 restore/resume events)
 
 ## System Status Model
 

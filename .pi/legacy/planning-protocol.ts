@@ -30,8 +30,8 @@
  * - Compact context injection via before_agent_start
  * - Context pruning
  *
- * NOT implemented (deferred to Phase 7+):
- * - Package extraction / npm structure
+ * NOT implemented in this repo-local file (deferred or superseded):
+ * - Package extraction / npm structure → done: see pi-plan/ in the repo root
  * - Prompt templates under `.pi/prompts/`
  * - Implementation-mode unlock while planning mode is still on
  * - Automatic index reconciliation from arbitrary external file edits

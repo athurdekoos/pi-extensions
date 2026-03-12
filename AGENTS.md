@@ -324,6 +324,13 @@ Use priority labels when known:
 | `P2: medium` | Planned work |
 | `P3: low` | Backlog |
 
+When updating priority, always update **both**:
+
+1. The **issue label** (e.g. add `P1: high`, remove old priority label)
+2. The **GitHub Projects board Priority field** (e.g. set the Priority single-select field on the project item)
+
+These must stay in sync. Never update one without the other.
+
 ### Other Labels
 
 | Label | Meaning |

@@ -79,11 +79,15 @@ function validateTargetPath(cwd: string, targetPath: string): string | null {
  */
 export function buildCreateCommand(
   mode: NativeCreateMode,
-  name: string
+  name: string,
+  model?: string
 ): { args: string[]; description: string } {
   const args = ["create"];
   if (mode === "native_config") {
     args.push("--type=config");
+  }
+  if (model) {
+    args.push(`--model=${model}`);
   }
   args.push(name);
   const description = `adk ${args.join(" ")}`;
@@ -245,7 +249,7 @@ export async function createNativeAdkProject(
   const { mkdirSync } = await import("node:fs");
   mkdirSync(parentDir, { recursive: true });
 
-  const { args, description } = buildCreateCommand(mode, name);
+  const { args, description } = buildCreateCommand(mode, name, params.model);
   const result = await runAdkCreate(args, parentDir);
 
   if (result.error) {

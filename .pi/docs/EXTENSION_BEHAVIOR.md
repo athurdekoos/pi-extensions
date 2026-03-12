@@ -4,9 +4,9 @@ This document explains how the planning protocol extension works internally. It 
 
 ## Location and Discovery
 
-The extension lives at `.pi/extensions/planning-protocol.ts`.
+> **Note:** This document describes the legacy planning-protocol extension, which has been **moved to `.pi/legacy/planning-protocol.ts`** and is no longer auto-loaded. The canonical planning extension is [`pi-plan/`](../../pi-plan/). This document is preserved as historical/design reference.
 
-Pi auto-discovers project-local extensions from `.pi/extensions/*.ts`. No configuration is needed — placing the file at that path is sufficient for Pi to load it on startup.
+The extension originally lived at `.pi/extensions/planning-protocol.ts`, where Pi auto-discovers project-local extensions from `.pi/extensions/*.ts`. It was moved to `.pi/legacy/` to prevent dual-loading with the canonical `pi-plan/` package.
 
 The extension is a single TypeScript file loaded via [jiti](https://github.com/unjs/jiti) (no compilation step). It uses only Node.js built-in modules (`node:fs`, `node:path`) and the Pi extension API types.
 
@@ -269,7 +269,7 @@ No custom TUI components (`ctx.ui.custom()`) are used. No shortcuts or flags are
 
 The following are explicitly not implemented and deferred to future phases:
 
-- **Package extraction** — The extension is a single `.ts` file, not an npm package
+- **Package extraction** — This repo-local extension remains a single `.ts` file. The canonical packaged version is [`pi-plan/`](../../pi-plan/)
 - **Prompt templates** — No `.pi/prompts/` directory
 - **Implementation unlock** — No way to unlock tools while planning mode stays on; must `/plan-off`
 - **Archive deletion/cleanup** — No command to remove old archives

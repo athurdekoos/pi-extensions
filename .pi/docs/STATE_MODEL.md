@@ -109,6 +109,8 @@ Transitions are triggered by:
 - `/plan-complete` → resets `current.md` to template → `plan-ready` → `plan-required`
 - `/plan-archive` → resets `current.md` to template → `plan-ready` → `plan-required`
 - `/plan-new` → creates fresh plan from template → status depends on what user writes
+- `/plan-restore` → copies archive into `current.md` as draft → usually `plan-required`
+- `/plan-resume` → same as restore, then opens editor → status depends on what user writes
 
 ## Filesystem as Source of Truth
 

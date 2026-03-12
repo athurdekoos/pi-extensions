@@ -251,7 +251,7 @@ This checklist covers the core planning protocol behaviors. Execute each step ma
 ### Prerequisites
 
 - Pi is installed and can load project-local extensions from `.pi/extensions/`.
-- The repo has the `.pi/` directory structure with `planning-state.example.json`, `plans/current.md`, and `extensions/planning-protocol.ts`.
+- The repo has the `.pi/` directory structure with `planning-state.example.json`, `plans/current.md`, and `legacy/planning-protocol.ts` (historical reference; the canonical extension is `pi-plan/`).
 - Start from a clean state: delete `.pi/planning-state.json` if it exists.
 
 ### 1. State bootstrap

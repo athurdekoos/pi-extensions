@@ -267,12 +267,13 @@ async function finalizeSampleImport(
 export async function runToolPlanningWizard(
   ui: ExtensionUIContext
 ): Promise<ToolPlan | undefined> {
-  const configure = await ui.confirm(
-    "Configure tool access?",
-    "Plan which tools this agent/subagent will have access to.\nYou can skip this and configure later."
+  const toolChoice = await ui.select(
+    "Would you like to configure tools now?\nYou can always add tools later.",
+    ["Yes — configure tools now", "Skip — create agent without tools"]
   );
 
-  if (!configure) return undefined;
+  if (!toolChoice || toolChoice === "Skip — create agent without tools")
+    return undefined;
 
   // Step 1: ADK-native tools
   const adkNativeTools = await collectAdkNativeTools(ui);
