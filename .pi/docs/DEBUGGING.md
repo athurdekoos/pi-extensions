@@ -1,6 +1,8 @@
 # Debugging
 
-This document describes the debug system as implemented in the planning protocol extension (Phase 3+).
+> **Historical document.** This describes the debug system of the **legacy planning-protocol extension** (`.pi/legacy/planning-protocol.ts`). The canonical planning extension [`pi-plan/`](../../pi-plan/) uses `/plan-debug` for diagnostics — see the [pi-plan README](../../pi-plan/README.md) for current behavior.
+
+This document describes the debug system as implemented in the legacy planning protocol extension (Phase 3+).
 
 ## Purpose
 

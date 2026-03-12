@@ -68,14 +68,14 @@ Phase 1 creates the filesystem protocol foundation and persistent state model fo
 - **Documentation consistency pass** — Verified all docs match the actual implementation (commands, whitelist, status model, restore/resume behavior, debug events)
 - **Small operator-hardening fix** — `/plan-status` now shows explicit recovery hints when in `plan-required` state
 
-## What Later Phases May Add (to this repo-local workspace)
+## Possible future additions (to this repo-local workspace)
 
-> **Note:** Package extraction has already happened — the canonical shareable extension is [`pi-plan/`](../pi-plan/). The items below apply to this repo-local workspace only.
+> **Note:** Package extraction is complete — the canonical shareable extension is [`pi-plan/`](../pi-plan/). The items below would only apply to this repo-local workspace if the legacy extension were revived, which is not planned.
 
-- **Future**: Prompt templates under `.pi/prompts/`
-- **Future**: Implementation-mode unlock while planning mode is still on
-- **Future**: Archive deletion/cleanup UI
-- **Future**: Log rotation/pruning
+- Prompt templates under `.pi/prompts/`
+- Implementation-mode unlock while planning mode is still on
+- Archive deletion/cleanup UI
+- Log rotation/pruning
 
 ## Where Things Live
 
@@ -83,13 +83,13 @@ Phase 1 creates the filesystem protocol foundation and persistent state model fo
 
 | Path | Purpose |
 |------|---------|
-| `PLANNING_PROTOCOL.md` | Protocol rules (source of truth) |
+| `PLANNING_PROTOCOL.md` | Protocol rules — shared conventions with `pi-plan/`, legacy command reference |
 | `README.md` | This file |
-| `docs/STATE_MODEL.md` | State model docs |
-| `docs/DEBUGGING.md` | Debug system documentation |
-| `docs/EXTENSION_BEHAVIOR.md` | Extension internals and architecture |
-| `docs/OPERATOR_WORKFLOWS.md` | Operator workflows, recovery, validation checklist |
-| `planning-state.example.json` | Default state shape (reference/template) |
+| `docs/STATE_MODEL.md` | Legacy state model docs (historical — `pi-plan/` uses a different model) |
+| `docs/DEBUGGING.md` | Legacy debug system documentation (historical — `pi-plan/` uses `/plan-debug`) |
+| `docs/EXTENSION_BEHAVIOR.md` | Legacy extension internals and architecture (historical) |
+| `docs/OPERATOR_WORKFLOWS.md` | Legacy operator workflows and validation checklist (historical — see `pi-plan/README.md` for current validation) |
+| `planning-state.example.json` | Default state shape for legacy extension (not used by `pi-plan/`) |
 
 ### Historical / legacy reference
 
@@ -132,3 +132,18 @@ This repo-local workspace structure is compatible with:
 - **`pi-plan` package** ([`../pi-plan/`](../pi-plan/)) — Uses the same `plans/current.md`, `plans/index.md`, and `plans/archive/` conventions. `pi-plan` is the canonical shareable extension; this workspace is where this repository dogfoods the planning workflow.
 - **Pi project-local resources** — Lives under `.pi/` as Pi expects
 - **Future prompt templates** — May go under `.pi/prompts/`
+
+## Workspace recommendation
+
+**Keep root `.pi/` as a permanent repo-local dogfooding workspace.** Rationale:
+
+- The `plans/` directory is actively used by `pi-plan` for this repository's own planning workflow. Removing it would break that.
+- The protocol and documentation files provide useful historical context for the design decisions behind `pi-plan/`.
+- The `legacy/` directory preserves the original monolithic implementation for reference without interfering with runtime (it is outside `.pi/extensions/`).
+- The `docs/` files now carry historical-document banners, so they will not mislead new contributors into thinking they describe the current `pi-plan/` runtime.
+
+What could be trimmed later if desired:
+- `planning-state.example.json` and `planning-state.json` are only used by the legacy extension and are not needed by `pi-plan/`.
+- `PLANNING_PROTOCOL.md` could eventually be merged into a lighter reference, but it is harmless as-is.
+
+No large deletions are recommended at this time.

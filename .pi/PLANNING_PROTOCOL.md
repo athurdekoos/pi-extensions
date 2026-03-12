@@ -1,5 +1,7 @@
 # Planning Protocol
 
+> **Context:** This file documents the planning protocol as designed for the **legacy planning-protocol extension** (`.pi/legacy/planning-protocol.ts`). The plan metadata contract (slug, status, updated_at), file locations (`plans/current.md`, `plans/archive/`), and archive naming convention are shared with the canonical [`pi-plan/`](../pi-plan/) package. However, the commands documented below (`/plan-on`, `/plan-off`, `/plan-status`, `/plan-new`, `/plan-complete`, `/plan-archive`, `/plan-list`, `/plan-show`, `/plan-restore`, `/plan-resume`) are legacy commands. The canonical `pi-plan/` package exposes only `/plan` and `/plan-debug`.
+
 This file is the human-readable source of truth for the repo-local planning protocol.
 
 ## Purpose

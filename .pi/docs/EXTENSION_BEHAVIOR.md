@@ -265,11 +265,11 @@ The extension uses these Pi UI features:
 
 No custom TUI components (`ctx.ui.custom()`) are used. No shortcuts or flags are registered.
 
-## What Is Intentionally Deferred
+## What Is Intentionally Deferred (in the legacy extension)
 
-The following are explicitly not implemented and deferred to future phases:
+The following were not implemented in the legacy extension. Some have been addressed by the canonical [`pi-plan/`](../../pi-plan/) package:
 
-- **Package extraction** — This repo-local extension remains a single `.ts` file. The canonical packaged version is [`pi-plan/`](../../pi-plan/)
+- **~~Package extraction~~** — Completed. The canonical shareable extension is [`pi-plan/`](../../pi-plan/). This legacy file is preserved for historical reference only.
 - **Prompt templates** — No `.pi/prompts/` directory
 - **Implementation unlock** — No way to unlock tools while planning mode stays on; must `/plan-off`
 - **Archive deletion/cleanup** — No command to remove old archives

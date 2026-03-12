@@ -1,5 +1,7 @@
 # State Model
 
+> **Historical document.** This describes the runtime state model used by the **legacy planning-protocol extension** (`.pi/legacy/planning-protocol.ts`). The canonical planning extension [`pi-plan/`](../../pi-plan/) uses a different, simpler state model based on filesystem detection (no `planning-state.json` toggle file). See the [pi-plan README](../../pi-plan/README.md) for the current architecture.
+
 This document describes the runtime state model in `.pi/planning-state.json`.
 
 The live state file is **not committed** — it is gitignored local runtime state. The committed file `.pi/planning-state.example.json` defines the default shape and is used as a template on first run.

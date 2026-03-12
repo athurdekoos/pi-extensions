@@ -1,5 +1,12 @@
 # Operator Workflows
 
+> **Historical document.** This describes the workflows and validation checklist for the **legacy planning-protocol extension** (`.pi/legacy/planning-protocol.ts`), which is no longer loaded at runtime.
+>
+> The canonical planning extension is [`pi-plan/`](../../pi-plan/).
+> For current validation and manual verification steps, see the **[pi-plan README § Manual verification](../../pi-plan/README.md#manual-verification)**.
+>
+> This document is preserved as design reference for the legacy command set (`/plan-on`, `/plan-off`, `/plan-status`, `/plan-new`, `/plan-complete`, `/plan-archive`, `/plan-list`, `/plan-show`, `/plan-restore`, `/plan-resume`). These commands do not exist in `pi-plan/`, which exposes only `/plan` and `/plan-debug`.
+
 This document provides step-by-step workflows for all planning protocol operations. Each workflow describes the exact commands, expected behavior, and recovery paths.
 
 ## Turning Planning Mode On
@@ -244,14 +251,19 @@ If the file is severely corrupted, delete it and run `/plan` — the extension w
 
 ---
 
-## Validation / Regression Checklist
+## Validation / Regression Checklist (Legacy Extension)
 
-This checklist covers the core planning protocol behaviors. Execute each step manually to verify the system works correctly after changes.
+> **This checklist targets the legacy extension** (`.pi/legacy/planning-protocol.ts`), not the canonical `pi-plan/` package. Commands like `/plan-on`, `/plan-off`, `/plan-status`, etc. are legacy commands that do not exist in `pi-plan/`.
+>
+> **For validating the canonical runtime**, use the [pi-plan README § Manual verification](../../pi-plan/README.md#manual-verification) checklist, which covers `/plan` and `/plan-debug` against the real `pi-plan/` package.
 
-### Prerequisites
+This checklist covers the core planning protocol behaviors of the legacy extension. Execute each step manually to verify the legacy system works correctly.
 
-- Pi is installed and can load project-local extensions from `.pi/extensions/`.
-- The repo has the `.pi/` directory structure with `planning-state.example.json`, `plans/current.md`, and `legacy/planning-protocol.ts` (historical reference; the canonical extension is `pi-plan/`).
+### Prerequisites (legacy)
+
+- Pi is installed.
+- The legacy extension is loaded explicitly (e.g., `pi -e .pi/legacy/planning-protocol.ts`) — it is **not** auto-discovered from `.pi/extensions/` (it was moved to `.pi/legacy/` to prevent dual-loading with `pi-plan/`).
+- The repo has the `.pi/` directory structure with `planning-state.example.json` and `plans/current.md`.
 - Start from a clean state: delete `.pi/planning-state.json` if it exists.
 
 ### 1. State bootstrap
