@@ -45,13 +45,29 @@ Phase 1 creates the filesystem protocol foundation and persistent state model fo
 - **`current.md` lifecycle semantics** — After `/plan-complete` and `/plan-archive`, `current.md` is reset to the empty template (status: `template`, no slug). This prevents stale active plans from misleading the operator.
 - **Extended debug logging** — New events: `command:plan-new`, `command:plan-complete`, `command:plan-archive`, `command:plan-list`, `archive_created`, `index_updated`, `current_plan_reset`, `lifecycle_validation_failure`.
 
+## What Phase 5 Adds
+
+- **`/plan-show [archive-name|slug]`** — Inspect an archived plan without modifying `current.md` or runtime state. Shows metadata and content summary. Supports interactive selection if no argument is given.
+- **`/plan-restore [archive-name|slug]`** — Copy an archived plan back into `current.md` as a draft. Prompts before replacing meaningful current content. Offers to archive the current plan first. Archive files remain untouched.
+- **`/plan-resume [archive-name|slug]`** — Restore an archived plan and immediately open the editor for revision. Performs restore, then launches the guided plan flow.
+- **Deterministic archive resolution** — Resolves archive targets by exact filename, slug match, or interactive selection. Fails clearly on ambiguity.
+- **Safe restore semantics** — Restored plans default to `status: draft` with fresh `updated_at`. Meaningful current content is never silently replaced.
+- **Extended debug logging** — New events: `command:plan-show`, `command:plan-restore`, `command:plan-resume`, `archive_resolution`, `restore_confirmation`, `restore_cancelled`, `restored_metadata`, `plan_shown`.
+
+## What Phase 6 Adds
+
+- **`docs/DEBUGGING.md`** — Complete debug system documentation: log format, event reference, diagnosis patterns, limitations
+- **`docs/EXTENSION_BEHAVIOR.md`** — Internal extension architecture: discovery, hooks, state management, parsing, enforcement, UI components
+- **`docs/OPERATOR_WORKFLOWS.md`** — Step-by-step workflows for all commands, common mistakes and recovery, validation/regression checklist
+- **Documentation consistency pass** — Verified all docs match the actual implementation (commands, whitelist, status model, restore/resume behavior, debug events)
+- **Small operator-hardening fix** — `/plan-status` now shows explicit recovery hints when in `plan-required` state
+
 ## What Later Phases Will Add
 
 - **Future**: Prompt templates under `.pi/prompts/`
 - **Future**: Package extraction / npm shareable structure
 - **Future**: Integration with `pi-plan` extension for plan generation
 - **Future**: Implementation-mode unlock while planning mode is still on
-- **Future**: Archive restore/resume UI
 - **Future**: Archive deletion/cleanup UI
 - **Future**: Log rotation/pruning
 
@@ -64,13 +80,16 @@ Phase 1 creates the filesystem protocol foundation and persistent state model fo
 | `PLANNING_PROTOCOL.md` | Protocol rules (source of truth) |
 | `README.md` | This file |
 | `docs/STATE_MODEL.md` | State model docs |
+| `docs/DEBUGGING.md` | Debug system documentation |
+| `docs/EXTENSION_BEHAVIOR.md` | Extension internals and architecture |
+| `docs/OPERATOR_WORKFLOWS.md` | Operator workflows, recovery, validation checklist |
 | `planning-state.example.json` | Default state shape (reference/template) |
 
 ### Committed — extension code
 
 | Path | Purpose |
 |------|---------|
-| `extensions/planning-protocol.ts` | Phase 4 planning protocol extension |
+| `extensions/planning-protocol.ts` | Phase 6 planning protocol extension |
 
 ### Committed — plan artifacts
 

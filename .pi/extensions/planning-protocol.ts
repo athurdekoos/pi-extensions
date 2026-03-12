@@ -1,12 +1,22 @@
 /**
- * Planning Protocol Extension — Phase 4 MVP
+ * Planning Protocol Extension — Phase 6
  *
- * Builds on Phase 3 with:
+ * Phase 6 adds operator-hardening fixes and documentation.
+ * No architectural changes from Phase 5.
+ *
+ * Phase 6 changes:
+ * - /plan-status: clearer recovery hints when in plan-required state
+ * - Full documentation layer: DEBUGGING.md, EXTENSION_BEHAVIOR.md, OPERATOR_WORKFLOWS.md
+ *
+ * Preserved from Phase 5:
+ * - /plan-show, /plan-restore, /plan-resume with deterministic archive resolution
+ * - Safe restore semantics (confirm before replacing meaningful current content)
+ *
+ * Preserved from Phase 4:
  * - Plan lifecycle commands: /plan-new, /plan-complete, /plan-archive, /plan-list
  * - Archive snapshot creation (deterministic, append-only)
  * - Deterministic plans/index.md automation
  * - current.md lifecycle semantics (reset to template after complete/archive)
- * - Extended debug logging for lifecycle operations
  *
  * Preserved from Phase 1/2/3:
  * - Runtime/system status enum: off, plan-required, plan-ready
@@ -20,13 +30,12 @@
  * - Compact context injection via before_agent_start
  * - Context pruning
  *
- * NOT implemented in this phase (deferred to Phase 5+):
+ * NOT implemented (deferred to Phase 7+):
  * - Package extraction / npm structure
  * - Prompt templates under `.pi/prompts/`
  * - Implementation-mode unlock while planning mode is still on
  * - Automatic index reconciliation from arbitrary external file edits
  * - Archive deletion/cleanup UI
- * - Archive restore/resume UI
  * - Log rotation/pruning
  * - Custom TUI components beyond normal status/widget/dialog use
  */
@@ -522,6 +531,149 @@ function createArchiveSnapshot(
 	}
 }
 
+// ─── Archive Resolution (Phase 5) ───────────────────────────────────────────
+//
+// Deterministic archive target resolution:
+//   1. Exact filename match (e.g., "2026-03-12-0830-my-plan.md")
+//   2. Exact slug match against parsed metadata
+//   3. If ambiguous (multiple slug matches), fail with candidates
+//   4. If no match, fail clearly
+
+interface ArchiveEntry {
+	filename: string;
+	path: string;
+	content: string;
+	meta: PlanMeta | null;
+	valid: boolean;
+}
+
+/** Scan the archive directory and parse all entries. */
+function scanArchive(cwd: string): ArchiveEntry[] {
+	const p = paths(cwd);
+	if (!existsSync(p.archiveDir)) return [];
+
+	const entries: ArchiveEntry[] = [];
+	try {
+		const files = readdirSync(p.archiveDir)
+			.filter((f) => f.endsWith(".md"))
+			.sort()
+			.reverse(); // newest first
+
+		for (const file of files) {
+			const filePath = resolve(p.archiveDir, file);
+			try {
+				const content = readFileSync(filePath, "utf-8");
+				const result = parsePlanMeta(content);
+				entries.push({
+					filename: file,
+					path: filePath,
+					content,
+					meta: result.valid ? result.meta : null,
+					valid: result.valid,
+				});
+			} catch {
+				entries.push({ filename: file, path: filePath, content: "", meta: null, valid: false });
+			}
+		}
+	} catch {
+		// Cannot read archive dir
+	}
+
+	return entries;
+}
+
+type ArchiveResolution =
+	| { resolved: true; entry: ArchiveEntry }
+	| { resolved: false; reason: string; candidates?: ArchiveEntry[] };
+
+/**
+ * Resolve an archive target by query string.
+ *
+ * Resolution order:
+ *   1. Exact filename match (with or without .md suffix)
+ *   2. Exact slug match against parsed metadata
+ *   3. If multiple slug matches → ambiguous, return candidates
+ *   4. No match → fail
+ */
+function resolveArchiveTarget(entries: ArchiveEntry[], query: string): ArchiveResolution {
+	if (!query || !query.trim()) {
+		return { resolved: false, reason: "No archive target specified" };
+	}
+
+	const q = query.trim();
+
+	// 1. Exact filename match
+	const byFilename = entries.find((e) => e.filename === q || e.filename === `${q}.md`);
+	if (byFilename) {
+		return { resolved: true, entry: byFilename };
+	}
+
+	// 2. Slug match
+	const bySlug = entries.filter((e) => e.meta && e.meta.slug === q);
+	if (bySlug.length === 1) {
+		return { resolved: true, entry: bySlug[0] };
+	}
+	if (bySlug.length > 1) {
+		return {
+			resolved: false,
+			reason: `Ambiguous: ${bySlug.length} archives match slug "${q}"`,
+			candidates: bySlug,
+		};
+	}
+
+	return { resolved: false, reason: `No archive matches "${q}"` };
+}
+
+/**
+ * Build a human-readable summary of an archive entry.
+ */
+function renderArchiveSummary(entry: ArchiveEntry): string {
+	const lines: string[] = [];
+	lines.push(`File: ${entry.filename}`);
+	if (entry.meta) {
+		lines.push(`Slug: ${entry.meta.slug || "(empty)"}`);
+		lines.push(`Status: ${entry.meta.status}`);
+		lines.push(`Updated: ${entry.meta.updated_at || "(unknown)"}`);
+	} else {
+		lines.push("Metadata: invalid or missing");
+	}
+
+	// Extract title from first H1
+	const titleMatch = entry.content.match(/^# (.+)$/m);
+	if (titleMatch) {
+		lines.push(`Title: ${titleMatch[1]}`);
+	}
+
+	// Extract Goal section preview (first 3 non-empty lines after ## Goal)
+	const goalIdx = entry.content.indexOf("## Goal");
+	if (goalIdx !== -1) {
+		const afterGoal = entry.content.slice(goalIdx + "## Goal".length);
+		const nextSection = afterGoal.indexOf("\n## ");
+		const goalBlock = nextSection !== -1 ? afterGoal.slice(0, nextSection) : afterGoal.slice(0, 500);
+		const goalLines = goalBlock.split("\n").map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith("_"));
+		if (goalLines.length > 0) {
+			lines.push("");
+			lines.push("Goal:");
+			for (const gl of goalLines.slice(0, 3)) {
+				lines.push(`  ${gl}`);
+			}
+		}
+	}
+
+	return lines.join("\n");
+}
+
+/**
+ * Convert archived/completed content into resumed working metadata.
+ * Sets status to "draft" and updates updated_at. Preserves slug.
+ */
+function convertToResumedContent(content: string): string | null {
+	let updated = updatePlanMetaField(content, "status", "draft");
+	if (updated === null) return null;
+	updated = updatePlanMetaField(updated, "updated_at", new Date().toISOString());
+	return updated;
+}
+
 // ─── Index Automation ───────────────────────────────────────────────────────
 
 interface IndexEntry {
@@ -937,6 +1089,19 @@ export default function planningProtocolExtension(pi: ExtensionAPI): void {
 			if (state.planMode) {
 				lines.push(`Whitelist:    ACTIVE — only: ${whitelistStr}`);
 				lines.push(`All other tools are blocked until /plan-off.`);
+				// Phase 6: Explicit recovery hints based on current state
+				lines.push("");
+				lines.push("Next Steps");
+				lines.push("────────────────────────");
+				if (state.status === "plan-required") {
+					lines.push(`→ /plan          Create or fix the plan to reach plan-ready`);
+					lines.push(`→ /plan-restore  Restore a previously archived plan`);
+					lines.push(`→ /plan-off      Exit planning mode and restore all tools`);
+				} else if (state.status === "plan-ready") {
+					lines.push(`→ /plan-off      Exit planning mode to begin implementation`);
+					lines.push(`→ /plan          Revise the current plan`);
+					lines.push(`→ /plan-complete Mark the plan completed and archive it`);
+				}
 			} else {
 				lines.push(`Whitelist:    inactive — all tools available`);
 			}
@@ -1024,10 +1189,16 @@ export default function planningProtocolExtension(pi: ExtensionAPI): void {
 			lines.push("  command: plan-on, plan-off, plan, plan-status,");
 			lines.push("           plan-debug-on, plan-debug-off, plan-debug");
 			lines.push("  command: plan-new, plan-complete, plan-archive, plan-list");
+			lines.push("  command: plan-show, plan-restore, plan-resume");
 			lines.push("  tool_call: allowed/blocked decisions with tool name + reason");
 			lines.push("  plan_validated: after /plan saves");
 			lines.push("  reconcile: status transitions");
 			lines.push("  archive_created, index_updated, current_plan_reset");
+			lines.push("  archive_resolution: target resolution results");
+			lines.push("  restore_confirmation: branch taken (archive/replace/cancel)");
+			lines.push("  restore_cancelled: user cancelled restore");
+			lines.push("  restored_metadata: metadata transformation details");
+			lines.push("  plan_shown: archive inspected via /plan-show");
 			lines.push("  lifecycle_validation_failure");
 
 			ctx.ui.notify(lines.join("\n"), "info");
@@ -1395,6 +1566,349 @@ export default function planningProtocolExtension(pi: ExtensionAPI): void {
 			ctx.ui.notify(lines.join("\n"), "info");
 		},
 	});
+
+	// ── Phase 5: Restore/Resume Commands ─────────────────────────────────
+
+	pi.registerCommand("plan-show", {
+		description: "Inspect an archived plan without modifying current.md",
+		getArgumentCompletions: (prefix: string) => {
+			const entries = scanArchive(cwd);
+			// Offer both filenames and slugs as completions
+			const items: { value: string; label: string }[] = [];
+			const seenSlugs = new Set<string>();
+			for (const entry of entries) {
+				if (entry.filename.startsWith(prefix)) {
+					items.push({ value: entry.filename, label: entry.filename });
+				}
+				if (entry.meta?.slug && !seenSlugs.has(entry.meta.slug) && entry.meta.slug.startsWith(prefix)) {
+					seenSlugs.add(entry.meta.slug);
+					items.push({ value: entry.meta.slug, label: `${entry.meta.slug} (slug)` });
+				}
+			}
+			return items.length > 0 ? items : null;
+		},
+		handler: async (args, ctx) => {
+			logger.log(state, "command:plan-show", { query: args?.trim() || null });
+
+			const entries = scanArchive(cwd);
+
+			if (entries.length === 0) {
+				ctx.ui.notify("No archived plans found.", "info");
+				return;
+			}
+
+			let target: ArchiveEntry;
+
+			if (args?.trim()) {
+				// Resolve by query
+				const resolution = resolveArchiveTarget(entries, args.trim());
+				logger.log(state, "archive_resolution", {
+					query: args.trim(),
+					resolved: resolution.resolved,
+					reason: resolution.resolved ? null : resolution.reason,
+					candidateCount: !resolution.resolved && resolution.candidates ? resolution.candidates.length : 0,
+				});
+
+				if (!resolution.resolved) {
+					if (resolution.candidates && resolution.candidates.length > 1) {
+						// Ambiguous — let user pick
+						const choices = resolution.candidates.map(
+							(c) => `${c.filename}  [${c.meta?.slug || "?"}]  ${c.meta?.status || "?"}`,
+						);
+						const picked = await ctx.ui.select(`Multiple matches for "${args.trim()}":`, choices);
+						if (!picked) {
+							ctx.ui.notify("Selection cancelled.", "info");
+							return;
+						}
+						const pickedFilename = picked.split("  ")[0];
+						const found = resolution.candidates.find((c) => c.filename === pickedFilename);
+						if (!found) {
+							ctx.ui.notify("Selection failed.", "error");
+							return;
+						}
+						target = found;
+					} else {
+						ctx.ui.notify(resolution.reason, "error");
+						return;
+					}
+				} else {
+					target = resolution.entry;
+				}
+			} else {
+				// No query — let user pick from recent archives
+				const choices = entries.slice(0, 20).map(
+					(e) => `${e.filename}  [${e.meta?.slug || "?"}]  ${e.meta?.status || "?"}`,
+				);
+				const picked = await ctx.ui.select("Select an archived plan to view:", choices);
+				if (!picked) {
+					ctx.ui.notify("Selection cancelled.", "info");
+					return;
+				}
+				const pickedFilename = picked.split("  ")[0];
+				const found = entries.find((e) => e.filename === pickedFilename);
+				if (!found) {
+					ctx.ui.notify("Selection failed.", "error");
+					return;
+				}
+				target = found;
+			}
+
+			// Show the archive summary — read-only, no mutations
+			const summary = renderArchiveSummary(target);
+			const divider = "─".repeat(40);
+
+			const output: string[] = [];
+			output.push("Archived Plan");
+			output.push(divider);
+			output.push(summary);
+			output.push(divider);
+			output.push("");
+			output.push("Full content preview:");
+			output.push(divider);
+			// Show up to ~80 lines of content
+			const contentLines = target.content.split("\n");
+			const previewLines = contentLines.slice(0, 80);
+			output.push(...previewLines);
+			if (contentLines.length > 80) {
+				output.push(`... (${contentLines.length - 80} more lines — see archive/${target.filename})`);
+			}
+
+			ctx.ui.notify(output.join("\n"), "info");
+
+			logger.log(state, "plan_shown", {
+				filename: target.filename,
+				slug: target.meta?.slug || null,
+				status: target.meta?.status || null,
+			});
+		},
+	});
+
+	pi.registerCommand("plan-restore", {
+		description: "Copy an archived plan into current.md as a draft",
+		getArgumentCompletions: (prefix: string) => {
+			const entries = scanArchive(cwd);
+			const items: { value: string; label: string }[] = [];
+			const seenSlugs = new Set<string>();
+			for (const entry of entries) {
+				if (entry.filename.startsWith(prefix)) {
+					items.push({ value: entry.filename, label: entry.filename });
+				}
+				if (entry.meta?.slug && !seenSlugs.has(entry.meta.slug) && entry.meta.slug.startsWith(prefix)) {
+					seenSlugs.add(entry.meta.slug);
+					items.push({ value: entry.meta.slug, label: `${entry.meta.slug} (slug)` });
+				}
+			}
+			return items.length > 0 ? items : null;
+		},
+		handler: async (args, ctx) => {
+			logger.log(state, "command:plan-restore", { query: args?.trim() || null });
+
+			await performRestore(args?.trim() || "", ctx, false);
+		},
+	});
+
+	pi.registerCommand("plan-resume", {
+		description: "Restore an archived plan and open the editor to revise it",
+		getArgumentCompletions: (prefix: string) => {
+			const entries = scanArchive(cwd);
+			const items: { value: string; label: string }[] = [];
+			const seenSlugs = new Set<string>();
+			for (const entry of entries) {
+				if (entry.filename.startsWith(prefix)) {
+					items.push({ value: entry.filename, label: entry.filename });
+				}
+				if (entry.meta?.slug && !seenSlugs.has(entry.meta.slug) && entry.meta.slug.startsWith(prefix)) {
+					seenSlugs.add(entry.meta.slug);
+					items.push({ value: entry.meta.slug, label: `${entry.meta.slug} (slug)` });
+				}
+			}
+			return items.length > 0 ? items : null;
+		},
+		handler: async (args, ctx) => {
+			logger.log(state, "command:plan-resume", { query: args?.trim() || null });
+
+			await performRestore(args?.trim() || "", ctx, true);
+		},
+	});
+
+	/**
+	 * Shared restore logic for /plan-restore and /plan-resume.
+	 *
+	 * Steps:
+	 * 1. Resolve archive target
+	 * 2. Check if current.md is meaningful — if so, prompt user
+	 * 3. Copy archived content into current.md with status: draft, fresh updated_at
+	 * 4. Archive file remains untouched (restore is a copy, not a move)
+	 * 5. Reconcile runtime/system status
+	 * 6. Rebuild index
+	 * 7. If openEditor is true, launch the guided plan flow
+	 */
+	async function performRestore(query: string, ctx: ExtensionContext, openEditor: boolean): Promise<void> {
+		const p = paths(cwd);
+		const entries = scanArchive(cwd);
+
+		if (entries.length === 0) {
+			ctx.ui.notify("No archived plans found.", "info");
+			return;
+		}
+
+		// ── Step 1: Resolve archive target ──
+
+		let target: ArchiveEntry;
+
+		if (query) {
+			const resolution = resolveArchiveTarget(entries, query);
+			logger.log(state, "archive_resolution", {
+				query,
+				resolved: resolution.resolved,
+				reason: resolution.resolved ? null : resolution.reason,
+				candidateCount: !resolution.resolved && resolution.candidates ? resolution.candidates.length : 0,
+			});
+
+			if (!resolution.resolved) {
+				if (resolution.candidates && resolution.candidates.length > 1) {
+					const choices = resolution.candidates.map(
+						(c) => `${c.filename}  [${c.meta?.slug || "?"}]  ${c.meta?.status || "?"}`,
+					);
+					const picked = await ctx.ui.select(`Multiple matches for "${query}":`, choices);
+					if (!picked) {
+						ctx.ui.notify("Restore cancelled.", "info");
+						return;
+					}
+					const pickedFilename = picked.split("  ")[0];
+					const found = resolution.candidates.find((c) => c.filename === pickedFilename);
+					if (!found) {
+						ctx.ui.notify("Selection failed.", "error");
+						return;
+					}
+					target = found;
+				} else {
+					ctx.ui.notify(resolution.reason, "error");
+					return;
+				}
+			} else {
+				target = resolution.entry;
+			}
+		} else {
+			// No query — interactive selection
+			const choices = entries.slice(0, 20).map(
+				(e) => `${e.filename}  [${e.meta?.slug || "?"}]  ${e.meta?.status || "?"}`,
+			);
+			const picked = await ctx.ui.select("Select an archived plan to restore:", choices);
+			if (!picked) {
+				ctx.ui.notify("Restore cancelled.", "info");
+				return;
+			}
+			const pickedFilename = picked.split("  ")[0];
+			const found = entries.find((e) => e.filename === pickedFilename);
+			if (!found) {
+				ctx.ui.notify("Selection failed.", "error");
+				return;
+			}
+			target = found;
+		}
+
+		// ── Step 2: Check current.md before replacing ──
+
+		const currentResult = validateCurrentPlan(cwd);
+		let archivedCurrentFirst = false;
+
+		if (isMeaningfulPlan(currentResult)) {
+			const currentMeta = currentResult.meta!;
+			const action = await ctx.ui.select(
+				`Current plan "${currentMeta.slug || "(no slug)"}" (${currentMeta.status}) has content. What do you want to do?`,
+				[
+					"Archive current plan first, then restore",
+					"Replace current plan directly (discard)",
+					"Cancel",
+				],
+			);
+
+			if (!action || action === "Cancel") {
+				ctx.ui.notify("Restore cancelled.", "info");
+				logger.log(state, "restore_cancelled", { reason: "user_cancelled", currentSlug: currentMeta.slug });
+				return;
+			}
+
+			if (action.startsWith("Archive")) {
+				// Archive the current plan before replacing
+				const currentContent = readFileSync(p.currentPlan, "utf-8");
+				const archiveResult = createArchiveSnapshot(cwd, currentContent, currentMeta, "archived");
+
+				if ("error" in archiveResult) {
+					ctx.ui.notify(`Failed to archive current plan: ${archiveResult.error}`, "error");
+					logger.log(state, "lifecycle_validation_failure", {
+						command: openEditor ? "plan-resume" : "plan-restore",
+						reason: "archive_current_failed",
+						error: archiveResult.error,
+					});
+					return;
+				}
+
+				ctx.ui.notify(`Archived current plan as ${archiveResult.filename}`, "success");
+				logger.log(state, "archive_created", {
+					trigger: openEditor ? "plan-resume" : "plan-restore",
+					filename: archiveResult.filename,
+					slug: currentMeta.slug,
+					previousStatus: currentMeta.status,
+				});
+				archivedCurrentFirst = true;
+			}
+
+			logger.log(state, "restore_confirmation", {
+				branch: action.startsWith("Archive") ? "archive_then_replace" : "replace_directly",
+				currentSlug: currentMeta.slug,
+				currentStatus: currentMeta.status,
+			});
+		}
+
+		// ── Step 3: Convert archived content to resumed working state ──
+
+		const resumedContent = convertToResumedContent(target.content);
+		if (resumedContent === null) {
+			ctx.ui.notify("Failed to convert archived plan metadata for restoration.", "error");
+			logger.log(state, "lifecycle_validation_failure", {
+				command: openEditor ? "plan-resume" : "plan-restore",
+				reason: "metadata_conversion_failed",
+				archiveFilename: target.filename,
+			});
+			return;
+		}
+
+		logger.log(state, "restored_metadata", {
+			archiveFilename: target.filename,
+			originalStatus: target.meta?.status || null,
+			restoredStatus: "draft",
+			slug: target.meta?.slug || null,
+			archivedCurrentFirst,
+		});
+
+		// ── Step 4: Write restored content to current.md ──
+
+		mkdirSync(dirname(p.currentPlan), { recursive: true });
+		writeFileSync(p.currentPlan, resumedContent, "utf-8");
+
+		// ── Step 5: Reconcile and update ──
+
+		refreshAndReconcile(ctx);
+		rebuildIndex(cwd, lastPlanResult);
+		logger.log(state, "index_updated", { trigger: openEditor ? "plan-resume" : "plan-restore" });
+
+		const restoredSlug = target.meta?.slug || "(unknown)";
+		ctx.ui.notify(
+			`Restored "${restoredSlug}" from archive/${target.filename} into current.md (status: draft).`,
+			"success",
+		);
+
+		// ── Step 6: If /plan-resume, open the editor ──
+
+		if (openEditor) {
+			ctx.ui.notify("Opening editor — revise the restored plan before continuing.", "info");
+			await guidedPlanFlow(ctx);
+		} else {
+			ctx.ui.notify("Use /plan to edit the restored plan, or set status to 'active' when ready.", "info");
+		}
+	}
 
 	// ── Lifecycle Events ──────────────────────────────────────────────────
 
