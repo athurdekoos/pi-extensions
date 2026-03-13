@@ -13,7 +13,7 @@ This directory contains planning protocol definitions, plan files, and documenta
 Phase 1 creates the filesystem protocol foundation and persistent state model for a planning-mode MVP:
 
 - **`PLANNING_PROTOCOL.md`** — Human-readable protocol rules (source of truth)
-- **`planning-state.example.json`** — Default shape for the runtime state file
+- **`planning-state.example.json`** — Default shape for the runtime state file (moved to `legacy/` — legacy-only, not used by `pi-plan/`)
 - **`plans/current.md`** — Active plan template/pointer
 - **`plans/index.md`** — Plan index (current + archived)
 - **`plans/archive/`** — Archived plans directory
@@ -89,7 +89,7 @@ Phase 1 creates the filesystem protocol foundation and persistent state model fo
 | `docs/DEBUGGING.md` | Legacy debug system documentation (historical — `pi-plan/` uses `/plan-debug`) |
 | `docs/EXTENSION_BEHAVIOR.md` | Legacy extension internals and architecture (historical) |
 | `docs/OPERATOR_WORKFLOWS.md` | Legacy operator workflows and validation checklist (historical — see `pi-plan/README.md` for current validation) |
-| `planning-state.example.json` | Default state shape for legacy extension (not used by `pi-plan/`) |
+| `legacy/planning-state.example.json` | Default state shape for legacy extension (not used by `pi-plan/`) |
 
 ### Historical / legacy reference
 
@@ -143,7 +143,7 @@ This repo-local workspace structure is compatible with:
 - The `docs/` files now carry historical-document banners, so they will not mislead new contributors into thinking they describe the current `pi-plan/` runtime.
 
 What could be trimmed later if desired:
-- `planning-state.example.json` and `planning-state.json` are only used by the legacy extension and are not needed by `pi-plan/`.
+- `planning-state.json` is only used by the legacy extension at runtime (already gitignored). `planning-state.example.json` has been moved to `legacy/`.
 - `PLANNING_PROTOCOL.md` could eventually be merged into a lighter reference, but it is harmless as-is.
 
 No large deletions are recommended at this time.

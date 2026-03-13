@@ -2,16 +2,8 @@
 
 ## Current
 
-- [current.md](current.md) — _No active plan_
+- [A thing](current.md)
 
-## Open Plans
+## Archived
 
-_None._
-
-## Closed Plans
-
-_None._
-
-## Archive Notes
-
-Archived plans are stored in `archive/` with filenames: `YYYY-MM-DD-HHMM-<slug>.md`
+- [[TITLE]](archive/2026-03-12-1237-title.md) — `2026-03-12-1237-title.md`

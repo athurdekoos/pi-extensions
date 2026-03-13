@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-03-12-123413",
+  "cwd": "/home/mia/dev/pi-extensions",
+  "repoRoot": "/home/mia/dev/pi-extensions",
+  "state": "not-initialized",
+  "paths": {
+    "protocol": ".pi/PLANNING_PROTOCOL.md",
+    "template": ".pi/templates/task-plan.md",
+    "current": ".pi/plans/current.md",
+    "index": ".pi/plans/index.md",
+    "logsDir": ".pi/logs",
+    "archiveDir": ".pi/plans/archive"
+  },
+  "exists": {
+    "protocol": true,
+    "template": false,
+    "current": true,
+    "index": true
+  },
+  "currentPlan": {
+    "exists": true,
+    "isPlaceholder": false,
+    "sizeBytes": 764,
+    "lineCount": 54,
+    "title": "[TITLE]"
+  },
+  "archive": {
+    "count": 0,
+    "latestFilename": null
+  },
+  "template": {
+    "usable": false,
+    "sectionCount": 0,
+    "mode": "default-fallback",
+    "hasExplicitPlaceholders": false,
+    "usesFallback": true,
+    "repairRecommended": true
+  },
+  "initialization": {
+    "isFullyInitialized": false
+  },
+  "environment": {
+    "insideRepo": true
+  },
+  "config": {
+    "source": "default",
+    "configPath": ".pi/pi-plan.json",
+    "effectiveArchiveDir": ".pi/plans/archive",
+    "effectiveDebugLogDir": ".pi/logs",
+    "maxArchiveListEntries": 15,
+    "archiveFilenameStyle": "date-slug",
+    "allowInlineGoalArgs": true,
+    "resumeShowSummary": true,
+    "configWarnings": []
+  },
+  "warnings": [
+    "Partial initialization — missing: .pi/templates/task-plan.md"
+  ],
+  "notes": [
+    "Template file missing — using built-in fallback sections."
+  ]
+}

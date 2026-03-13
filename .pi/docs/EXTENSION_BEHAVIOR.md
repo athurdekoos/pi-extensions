@@ -1,5 +1,7 @@
 # Extension Behavior
 
+> **Historical document.** This describes the internal architecture of the **legacy planning-protocol extension** (`.pi/legacy/planning-protocol.ts`), which is no longer loaded at runtime. The canonical planning extension is [`pi-plan/`](../../pi-plan/). This document is preserved for historical/design reference.
+
 This document explains how the planning protocol extension works internally. It is intended for developers who need to understand, debug, or extend the system without reverse-engineering the implementation.
 
 ## Location and Discovery

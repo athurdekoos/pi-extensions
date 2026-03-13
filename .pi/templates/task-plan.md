@@ -1,12 +1,12 @@
-# Plan: A thing
+# Plan: [TITLE]
 
 ## Goal
 
-A thing
+{{GOAL}}
 
 ## Current State
 
-Repository root: `/home/mia/dev/pi-extensions`
+Repository root: `{{REPO_ROOT}}`
 
 _Describe what exists today. What is the starting point?_
 
