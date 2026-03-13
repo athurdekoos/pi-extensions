@@ -200,9 +200,23 @@ Tests use **vitest** and run via `npm test`. All tests are pure-helper / module-
 - Timestamp extraction from archive filenames fails
 - Label formatting truncation or timestamp display breaks
 
+### `smoke.test.ts`
+
+**Covers**: `index.ts` — extension entrypoint loading, command/tool/flag/event registration.
+
+**Regressions caught**:
+- Extension entrypoint fails to load (import error, missing module, factory throws)
+- Expected commands not registered (name drift, removed registration, wrong count)
+- Expected tools not registered
+- Expected flags not registered
+- Expected event hooks not wired (missing lifecycle hook, wrong event name)
+- New commands/tools/flags/hooks added without updating the smoke test (exact surface assertion)
+
+**How it works**: Calls the default export of `index.ts` with a minimal mock `ExtensionAPI` that records all `registerCommand`, `registerTool`, `registerFlag`, and `on` calls. Asserts the exact expected surface: 5 commands, 1 tool, 1 flag, 7 event hooks.
+
 ## What Is NOT Automated
 
-1. **Full command registration.** The Pi `registerCommand` wiring in `index.ts` is not unit-tested. It is a thin bridge to `orchestration.ts` which IS tested.
+1. ~~**Full command registration.**~~ Now covered by `smoke.test.ts`. The Pi `registerCommand` wiring in `index.ts` is tested at the registration level (names, counts). Handler logic is tested via `orchestration.ts`.
 
 2. **`detectRepoRoot()` and `detectPlanState()` via real Pi runtime.** The `pi.exec`-based wrappers are thin delegators to `detectRepoRootWith`/`detectPlanStateWith` which ARE tested via the `ExecFn` seam.
 

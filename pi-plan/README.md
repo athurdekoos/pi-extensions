@@ -1,14 +1,50 @@
 # pi-plan
 
-Repo-local planning extension for [Pi Coding Agent](https://github.com/badlogic/pi-mono).
+Repo-local planning extension for [Pi Coding Agent](https://github.com/badlogic/pi-mono) with browser-based visual plan review, code review, and markdown annotation.
 
-## Status: Phase 9 (release-ready)
+## Status: v2.0.0
 
-Phases 0–8 built the full planning workflow: repo-local structure, four-state detection, plan creation/replace/resume/revisit, template-driven generation with explicit placeholders, archive lifecycle, diagnostics, lightweight config, and template system consolidation.
-
-Phase 9 is a cleanup/polish pass: resolved naming inconsistencies (`ensureTemplateUsable`), removed temporary backward-compatibility re-exports from `plangen.ts`, audited docs for accuracy, and tightened packaging.
+v2.0.0 merges plannotator's browser-based review capabilities into pi-plan's deterministic filesystem model. All canonical state lives in `.pi/` — no home-directory state, no auto-approve.
 
 ## What it does
+
+### Browser-based review (v2.0.0)
+
+#### `submit_plan` tool
+
+The agent calls `submit_plan` after drafting a plan to `.pi/plans/current.md`. This opens a browser-based visual review UI where you can:
+- Approve the plan (optionally with implementation notes)
+- Deny with detailed feedback and annotations
+- See diffs against the previous archived plan
+
+No auto-approve: if the browser UI is unavailable, the tool returns an error.
+
+#### `/plan-review` — interactive code review
+
+Opens a browser-based code review UI for current git changes. Shows uncommitted, staged, last-commit, or branch diffs with annotation support. Feedback is sent back to the agent.
+
+#### `/plan-annotate <file.md>` — markdown annotation
+
+Opens any markdown file in a browser-based annotation UI. Feedback is sent back to the agent.
+
+#### `--plan` flag
+
+Start Pi with plan enforcement enabled:
+```bash
+pi -e ~/dev/pi-extensions/pi-plan --plan
+```
+
+#### Environment variable
+
+Set `PI_PLAN_BROWSER` to specify a custom browser for review UIs.
+
+#### Review records
+
+All review decisions are recorded as append-only JSON files under `.pi/plans/reviews/`. Each record includes timestamp, approved/denied status, feedback, and plan title.
+
+#### Step format support
+
+Plans support both numbered steps (`1. Step`) and checkbox steps (`- [ ] Step`). The extension auto-detects which format is used. Configurable via `stepFormat` in `.pi/pi-plan.json`.
 
 ### `/plan` — planning state, initialization, plan creation, and lifecycle
 
@@ -156,6 +192,9 @@ Invalid values fall back to defaults with warnings — never crashes.
 | `debugLogFilenameStyle` | `"timestamp"` | `"timestamp"` | Debug log filename format |
 | `maxArchiveListEntries` | integer ≥ 1 | `15` | Max entries in archive browse list |
 | `currentStateTemplate` | string \| null | `null` | Custom template for `{{CURRENT_STATE}}` expansion (may use `{{REPO_ROOT}}`) |
+| `injectPlanContext` | boolean | `true` | Inject plan-state context messages into agent turns |
+| `reviewDir` | string | `".pi/plans/reviews"` | Relative path for review records |
+| `stepFormat` | `"numbered"` \| `"checkbox"` \| `"both"` | `"both"` | Step format for plan tracking |
 
 #### Example config
 
@@ -195,6 +234,8 @@ When initialized, `/plan` creates:
     index.md                 # Plan index with current + archived plans
     archive/                 # Archived plans (created on first archive)
       YYYY-MM-DD-HHMM-slug.md
+    reviews/                 # Review records (append-only)
+      review-TIMESTAMP.json
   pi-plan.json               # Optional config file
 ```
 
@@ -251,12 +292,11 @@ This makes the "no plan yet" vs "plan exists" distinction deterministic.
 - No global config defaults (repo-local only)
 - No multi-step plan editing or revision
 - No auto-planning before coding
-- No plan linting or enforcement
+- No plan linting
 - No background automation
 - No telemetry upload
 - No advanced archive search/filtering
 - No multiple simultaneous current plans
-- No "open in editor" from resume (Pi UI primitives don't expose this cleanly)
 
 ## Installation
 
@@ -463,7 +503,7 @@ echo "# Plan: Manual\n\n## Goal\n\nManually added." > .pi/plans/archive/2026-01-
 cd pi-plan && npm test
 ```
 
-Tests cover (308 tests across 10 files):
+Tests cover (452+ tests across 19 files):
 - **Config handling** — defaults when missing, valid overrides, invalid fallback with warnings,
   resolved paths, per-field validation, mixed valid/invalid fields, unknown keys
 - **Summary extraction** — Goal section lines, maxLines, placeholder skipping, fallback behavior
@@ -522,30 +562,29 @@ These are covered by the manual verification path above.
 
 ```
 pi-plan/
-  index.ts              # Extension entry — registers /plan and /plan-debug (thin bridge)
-  orchestration.ts      # Command handler logic, PlanUI interface, template repair (Phase 5+7+8)
-  template-core.ts      # Shared template primitives: types, parsing, CURRENT_STATE builder (Phase 8)
-  template-analysis.ts  # Template mode classification (Phase 7+8)
-  repo.ts               # Repo detection, state detection, ExecFn seam, initialization
+  index.ts              # Extension entry — commands, tools, lifecycle hooks (thin bridge)
+  orchestration.ts      # Command handler logic, PlanUI interface, template repair
+  template-core.ts      # Shared template primitives: types, parsing, CURRENT_STATE builder
+  template-analysis.ts  # Template mode classification
+  repo.ts               # Repo detection, state detection, review records, migration
   defaults.ts           # Default file contents for planning structure
-  config.ts             # Lightweight config loader/normalizer (Phase 4+7)
-  summary.ts            # Plan summary and archive label helpers (Phase 4)
+  config.ts             # Lightweight config loader/normalizer
+  summary.ts            # Plan summary and archive label helpers
   diagnostics.ts        # Diagnostic snapshot model, collection, log writing
-  plangen.ts            # Template-aware plan generation (Phase 5+6+7+8+9)
+  plangen.ts            # Template-aware plan generation
   archive.ts            # Archive lifecycle — archive, list, restore, index, reconciliation
+  auto-plan.ts          # Plan enforcement state machine
+  harness.ts            # Harness-level input interception
+  mode-utils.ts         # Step extraction and [DONE:n] tracking
+  review.ts             # Review orchestration — browser review lifecycle
+  server.ts             # Ephemeral HTTP servers for plan/code/annotate review
+  browser.ts            # System browser launcher
+  assets/
+    plan-review.html    # Pre-built plan review + annotation UI
+    review-editor.html  # Pre-built code review UI
   package.json          # Pi package manifest
   vitest.config.ts      # Test config
-  tests/
-    repo.test.ts        # Unit tests for detection, initialization, ExecFn seam (Phase 5)
-    diagnostics.test.ts # Unit tests for diagnostics, logging, snapshot safety, config awareness
-    plangen.test.ts     # Unit tests for plan generation, template parsing, writing, safety (Phase 5+8)
-    archive.test.ts     # Unit tests for archive helpers, flows, index, state integration
-    config.test.ts      # Unit tests for config loading, validation, fallback (Phase 4)
-    summary.test.ts     # Unit tests for summary extraction and archive labels (Phase 4)
-    orchestration.test.ts # Unit tests for command handler branches (Phase 5+7)
-    reconcile.test.ts   # Unit tests for index reconciliation (Phase 5)
-    template-analysis.test.ts # Unit tests for shared template analysis (Phase 7)
-    template-core.test.ts # Unit tests for template primitives and CURRENT_STATE builder (Phase 8)
+  tests/                # 452+ tests across 19 files
   README.md
 ```
 
@@ -610,9 +649,13 @@ For maintainers and contributors, see:
 - [`docs/file-contracts.md`](docs/file-contracts.md) — repo-local file semantics and contracts
 - [`tests/TESTING.md`](tests/TESTING.md) — test coverage strategy
 
-## Expected future phases
+## Future work
 
-- **Phase 10+**: Plan linting/enforcement, richer revision flows, global config defaults
+- Plan linting and validation
+- Richer revision flows
+- Global config defaults
+- Write-gating during all enforcement phases
+- Ctrl+Alt+P keyboard shortcut
 
 ## Dependencies
 

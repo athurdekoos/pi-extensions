@@ -44,6 +44,12 @@ export interface PiPlanConfig {
   maxArchiveListEntries: number;
   /** Custom template text for {{CURRENT_STATE}} expansion (may contain {{REPO_ROOT}}) */
   currentStateTemplate: string | null;
+  /** Inject context messages about plan state into agent turns when enforcement is active (default: true) */
+  injectPlanContext: boolean;
+  /** Relative path for review records directory (from repo root) */
+  reviewDir: string;
+  /** Step format for plan steps: "numbered" (1. Step) or "checkbox" (- [ ] Step) or "both" */
+  stepFormat: "numbered" | "checkbox" | "both";
 }
 
 // ---------------------------------------------------------------------------
@@ -60,6 +66,9 @@ export const DEFAULT_CONFIG: Readonly<PiPlanConfig> = {
   debugLogFilenameStyle: "timestamp",
   maxArchiveListEntries: 15,
   currentStateTemplate: null,
+  injectPlanContext: true,
+  reviewDir: ".pi/plans/reviews",
+  stepFormat: "both",
 };
 
 // ---------------------------------------------------------------------------
@@ -75,6 +84,7 @@ export const CONFIG_REL = ".pi/pi-plan.json";
 const VALID_ARCHIVE_FILENAME_STYLES = new Set(["date-slug", "date-only"]);
 const VALID_ARCHIVE_COLLISION_STRATEGIES = new Set(["counter"]);
 const VALID_DEBUG_LOG_FILENAME_STYLES = new Set(["timestamp"]);
+const VALID_STEP_FORMATS = new Set(["numbered", "checkbox", "both"]);
 
 export interface ConfigLoadResult {
   config: PiPlanConfig;
@@ -131,7 +141,12 @@ export function loadConfig(repoRoot: string): ConfigLoadResult {
   // archiveDir
   if ("archiveDir" in obj) {
     if (typeof obj.archiveDir === "string" && obj.archiveDir.trim().length > 0) {
-      config.archiveDir = obj.archiveDir.trim();
+      const trimmed = obj.archiveDir.trim();
+      if (trimmed.includes("..")) {
+        warnings.push(`archiveDir contains ".." (path traversal) — using default "${DEFAULT_CONFIG.archiveDir}".`);
+      } else {
+        config.archiveDir = trimmed;
+      }
     } else {
       warnings.push(`Invalid archiveDir — using default "${DEFAULT_CONFIG.archiveDir}".`);
     }
@@ -176,7 +191,12 @@ export function loadConfig(repoRoot: string): ConfigLoadResult {
   // debugLogDir
   if ("debugLogDir" in obj) {
     if (typeof obj.debugLogDir === "string" && obj.debugLogDir.trim().length > 0) {
-      config.debugLogDir = obj.debugLogDir.trim();
+      const trimmed = obj.debugLogDir.trim();
+      if (trimmed.includes("..")) {
+        warnings.push(`debugLogDir contains ".." (path traversal) — using default "${DEFAULT_CONFIG.debugLogDir}".`);
+      } else {
+        config.debugLogDir = trimmed;
+      }
     } else {
       warnings.push(`Invalid debugLogDir — using default "${DEFAULT_CONFIG.debugLogDir}".`);
     }
@@ -208,6 +228,38 @@ export function loadConfig(repoRoot: string): ConfigLoadResult {
       config.currentStateTemplate = obj.currentStateTemplate;
     } else {
       warnings.push(`Invalid currentStateTemplate — using default.`);
+    }
+  }
+
+  // injectPlanContext
+  if ("injectPlanContext" in obj) {
+    if (typeof obj.injectPlanContext === "boolean") {
+      config.injectPlanContext = obj.injectPlanContext;
+    } else {
+      warnings.push(`Invalid injectPlanContext — using default ${DEFAULT_CONFIG.injectPlanContext}.`);
+    }
+  }
+
+  // reviewDir
+  if ("reviewDir" in obj) {
+    if (typeof obj.reviewDir === "string" && obj.reviewDir.trim().length > 0) {
+      const trimmed = obj.reviewDir.trim();
+      if (trimmed.includes("..")) {
+        warnings.push(`reviewDir contains ".." (path traversal) — using default "${DEFAULT_CONFIG.reviewDir}".`);
+      } else {
+        config.reviewDir = trimmed;
+      }
+    } else {
+      warnings.push(`Invalid reviewDir — using default "${DEFAULT_CONFIG.reviewDir}".`);
+    }
+  }
+
+  // stepFormat
+  if ("stepFormat" in obj) {
+    if (typeof obj.stepFormat === "string" && VALID_STEP_FORMATS.has(obj.stepFormat)) {
+      config.stepFormat = obj.stepFormat as PiPlanConfig["stepFormat"];
+    } else {
+      warnings.push(`Invalid stepFormat — using default "${DEFAULT_CONFIG.stepFormat}".`);
     }
   }
 

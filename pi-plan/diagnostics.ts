@@ -35,6 +35,8 @@ import { listArchives, extractPlanTitle, readCurrentPlan, ARCHIVE_DIR_REL } from
 import type { PiPlanConfig } from "./config.js";
 import { DEFAULT_CONFIG, CONFIG_REL } from "./config.js";
 import { analyzeTemplateFromDisk, type TemplateMode } from "./template-analysis.js";
+import { listReviewRecords, REVIEWS_DIR_REL } from "./repo.js";
+import { hasPlanReviewUI, hasCodeReviewUI } from "./review.js";
 
 // ---------------------------------------------------------------------------
 // Relative path for logs directory (default, kept for backward compat)
@@ -69,6 +71,8 @@ export interface ConfigInfo {
   configPath: string;
   effectiveArchiveDir: string;
   effectiveDebugLogDir: string;
+  effectiveReviewDir: string;
+  effectiveStepFormat: string;
   maxArchiveListEntries: number;
   archiveFilenameStyle: string;
   allowInlineGoalArgs: boolean;
@@ -120,6 +124,14 @@ export interface DiagnosticSnapshot {
     insideRepo: boolean;
   };
   config: ConfigInfo;
+  review: {
+    /** Whether plan-review.html asset exists */
+    planReviewUIAvailable: boolean;
+    /** Whether review-editor.html asset exists */
+    codeReviewUIAvailable: boolean;
+    /** Number of review records in reviews directory */
+    reviewRecordCount: number;
+  };
   warnings: string[];
   notes: string[];
 }
@@ -206,6 +218,8 @@ export function collectDiagnostics(
     configPath: CONFIG_REL,
     effectiveArchiveDir: effectiveConfig.archiveDir,
     effectiveDebugLogDir: effectiveConfig.debugLogDir,
+    effectiveReviewDir: effectiveConfig.reviewDir,
+    effectiveStepFormat: effectiveConfig.stepFormat,
     maxArchiveListEntries: effectiveConfig.maxArchiveListEntries,
     archiveFilenameStyle: effectiveConfig.archiveFilenameStyle,
     allowInlineGoalArgs: effectiveConfig.allowInlineGoalArgs,
@@ -325,6 +339,11 @@ export function collectDiagnostics(
     initialization: { isFullyInitialized: fullyInit },
     environment: { insideRepo: true },
     config: configInfo,
+    review: {
+      planReviewUIAvailable: hasPlanReviewUI(),
+      codeReviewUIAvailable: hasCodeReviewUI(),
+      reviewRecordCount: listReviewRecords(repoRoot, effectiveConfig.reviewDir).length,
+    },
     warnings,
     notes,
   };

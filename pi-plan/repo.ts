@@ -20,7 +20,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   PLANNING_PROTOCOL,
@@ -182,6 +182,117 @@ export function writeCurrentPlan(repoRoot: string, content: string): boolean {
   mkdirSync(dir, { recursive: true });
   writeFileSync(abs, content, "utf-8");
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Review records — append-only under .pi/plans/reviews/
+// ---------------------------------------------------------------------------
+
+export const REVIEWS_DIR_REL = ".pi/plans/reviews";
+
+export interface ReviewRecord {
+  /** ISO 8601 timestamp */
+  timestamp: string;
+  /** Whether the plan was approved */
+  approved: boolean;
+  /** Optional reviewer feedback */
+  feedback?: string;
+  /** Plan title at time of review */
+  planTitle?: string;
+}
+
+/**
+ * Write a review record to .pi/plans/reviews/.
+ *
+ * Review records are append-only JSON files named by timestamp.
+ * Returns the relative path of the written record.
+ */
+export function writeReviewRecord(
+  repoRoot: string,
+  record: ReviewRecord,
+  reviewDirRel: string = REVIEWS_DIR_REL,
+): string {
+  const reviewDir = join(repoRoot, reviewDirRel);
+  mkdirSync(reviewDir, { recursive: true });
+
+  const ts = record.timestamp.replace(/[:.]/g, "-");
+  let filename = `review-${ts}.json`;
+  let abs = join(reviewDir, filename);
+
+  // Handle collisions
+  let counter = 1;
+  while (existsSync(abs)) {
+    filename = `review-${ts}-${counter}.json`;
+    abs = join(reviewDir, filename);
+    counter++;
+  }
+
+  writeFileSync(abs, JSON.stringify(record, null, 2), "utf-8");
+  return `${reviewDirRel}/${filename}`;
+}
+
+/**
+ * List all review records, sorted newest-first.
+ */
+export function listReviewRecords(
+  repoRoot: string,
+  reviewDirRel: string = REVIEWS_DIR_REL,
+): ReviewRecord[] {
+  const reviewDir = join(repoRoot, reviewDirRel);
+  if (!existsSync(reviewDir)) return [];
+
+  const files = readdirSync(reviewDir)
+    .filter((f) => f.endsWith(".json"))
+    .sort()
+    .reverse();
+
+  const records: ReviewRecord[] = [];
+  for (const file of files) {
+    try {
+      const content = readFileSync(join(reviewDir, file), "utf-8");
+      records.push(JSON.parse(content) as ReviewRecord);
+    } catch {
+      // Skip malformed records
+    }
+  }
+  return records;
+}
+
+// ---------------------------------------------------------------------------
+// Migration — legacy plannotator PLAN.md at repo root
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if a legacy PLAN.md exists at the repo root (plannotator's old layout).
+ */
+export function hasLegacyPlanFile(repoRoot: string): boolean {
+  return existsSync(join(repoRoot, "PLAN.md"));
+}
+
+/**
+ * Migrate a legacy PLAN.md to .pi/plans/current.md.
+ *
+ * Reads PLAN.md from the repo root, writes its content to current.md
+ * (only if current.md does not already contain a real plan), and returns
+ * the content. Does NOT delete PLAN.md — the caller decides cleanup.
+ *
+ * Returns the migrated content, or null if migration was skipped
+ * (no PLAN.md, empty PLAN.md, or current.md already has a real plan).
+ */
+export function migrateLegacyPlan(repoRoot: string): string | null {
+  const legacyPath = join(repoRoot, "PLAN.md");
+  if (!existsSync(legacyPath)) return null;
+
+  const content = readFileSync(legacyPath, "utf-8").trim();
+  if (content.length === 0) return null;
+
+  // Don't overwrite a real current plan
+  if (hasCurrentPlan(repoRoot)) return null;
+
+  const abs = join(repoRoot, CURRENT_PLAN_REL);
+  mkdirSync(join(abs, ".."), { recursive: true });
+  writeFileSync(abs, content, "utf-8");
+  return content;
 }
 
 // ---------------------------------------------------------------------------

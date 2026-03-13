@@ -23,8 +23,22 @@
  */
 
 import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { CURRENT_PLAN_REL, PLANS_INDEX_REL, isFullyInitialized } from "./repo.js";
+
+// ---------------------------------------------------------------------------
+// Path safety
+// ---------------------------------------------------------------------------
+
+/**
+ * Check that `abs` is contained within `repoRoot`.
+ * Prevents path traversal via `..` segments in relative paths.
+ */
+function isContainedIn(abs: string, repoRoot: string): boolean {
+  const resolvedRoot = resolve(repoRoot);
+  const resolvedAbs = resolve(abs);
+  return resolvedAbs === resolvedRoot || resolvedAbs.startsWith(resolvedRoot + "/");
+}
 import type { PiPlanConfig } from "./config.js";
 import { DEFAULT_CONFIG } from "./config.js";
 
@@ -159,6 +173,9 @@ export function readCurrentPlan(repoRoot: string): string | null {
  */
 export function forceWriteCurrentPlan(repoRoot: string, content: string): void {
   const abs = join(repoRoot, CURRENT_PLAN_REL);
+  if (!isContainedIn(abs, repoRoot)) {
+    throw new Error(`Path escapes repository root: ${CURRENT_PLAN_REL}`);
+  }
   mkdirSync(join(abs, ".."), { recursive: true });
   writeFileSync(abs, content, "utf-8");
 }
@@ -190,6 +207,9 @@ export function archivePlan(
   const archiveDirRel = config?.archiveDir ?? ARCHIVE_DIR_REL;
   const filenameStyle = config?.archiveFilenameStyle ?? "date-slug";
   const archiveDir = join(repoRoot, archiveDirRel);
+  if (!isContainedIn(archiveDir, repoRoot)) {
+    throw new Error(`Archive directory escapes repository root: ${archiveDirRel}`);
+  }
   mkdirSync(archiveDir, { recursive: true });
 
   const title = extractPlanTitle(content);
@@ -286,6 +306,7 @@ export function countArchives(
  */
 export function readArchive(repoRoot: string, relPath: string): string | null {
   const abs = join(repoRoot, relPath);
+  if (!isContainedIn(abs, repoRoot)) return null;
   if (!existsSync(abs)) return null;
   return readFileSync(abs, "utf-8");
 }

@@ -508,3 +508,44 @@ describe("state integration with archives", () => {
     expect(hasCurrentPlan(tmp)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Path traversal protection
+// ---------------------------------------------------------------------------
+
+describe("path traversal protection", () => {
+  it("readArchive returns null for paths escaping repo root", () => {
+    initPlanning(tmp);
+    expect(readArchive(tmp, "../../etc/passwd")).toBeNull();
+    expect(readArchive(tmp, "../../../etc/shadow")).toBeNull();
+    expect(readArchive(tmp, ".pi/plans/../../outside.md")).toBeNull();
+  });
+
+  it("readArchive allows legitimate relative paths", () => {
+    initPlanning(tmp);
+    const content = "# Plan: Test\n\nGoal.";
+    const result = archivePlan(tmp, content, new Date(2026, 0, 1, 10, 0));
+    expect(readArchive(tmp, result.relPath)).toBe(content);
+  });
+
+  it("archivePlan rejects archiveDir that escapes repo root", () => {
+    expect(() => {
+      archivePlan(
+        tmp,
+        "# Plan: Escape\n\nGoal.",
+        new Date(2026, 0, 1, 10, 0),
+        { archiveDir: "../../tmp/evil" },
+      );
+    }).toThrow(/escapes repository root/);
+  });
+
+  it("archivePlan allows archiveDir within repo root", () => {
+    const result = archivePlan(
+      tmp,
+      "# Plan: Safe\n\nGoal.",
+      new Date(2026, 0, 1, 10, 0),
+      { archiveDir: ".pi/custom-archive" },
+    );
+    expect(existsSync(join(tmp, result.relPath))).toBe(true);
+  });
+});

@@ -118,6 +118,9 @@ describe("loadConfig — valid overrides", () => {
       debugLogFilenameStyle: "timestamp",
       maxArchiveListEntries: 3,
       currentStateTemplate: null,
+      injectPlanContext: true,
+      reviewDir: ".pi/plans/reviews",
+      stepFormat: "both",
     };
     writeConfig(JSON.stringify(full));
     const { config, warnings } = loadConfig(tmp);
@@ -278,5 +281,46 @@ describe("loadConfig — resolved paths", () => {
     writeConfig(JSON.stringify({ debugLogDir: "custom/logs" }));
     const { config } = loadConfig(tmp);
     expect(config.debugLogDir).toBe("custom/logs");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Path traversal prevention
+// ---------------------------------------------------------------------------
+
+describe("loadConfig — path traversal prevention", () => {
+  it("rejects archiveDir containing '..'", () => {
+    writeConfig(JSON.stringify({ archiveDir: "../outside" }));
+    const { config, warnings } = loadConfig(tmp);
+    expect(config.archiveDir).toBe(DEFAULT_CONFIG.archiveDir);
+    expect(warnings.some(w => w.includes("archiveDir") && w.includes(".."))).toBe(true);
+  });
+
+  it("rejects archiveDir with nested '..' traversal", () => {
+    writeConfig(JSON.stringify({ archiveDir: ".pi/plans/../../etc" }));
+    const { config, warnings } = loadConfig(tmp);
+    expect(config.archiveDir).toBe(DEFAULT_CONFIG.archiveDir);
+    expect(warnings.some(w => w.includes("archiveDir"))).toBe(true);
+  });
+
+  it("accepts archiveDir without '..'", () => {
+    writeConfig(JSON.stringify({ archiveDir: ".pi/plans/archive" }));
+    const { config, warnings } = loadConfig(tmp);
+    expect(config.archiveDir).toBe(".pi/plans/archive");
+    expect(warnings).toHaveLength(0);
+  });
+
+  it("rejects debugLogDir containing '..'", () => {
+    writeConfig(JSON.stringify({ debugLogDir: "../../tmp/logs" }));
+    const { config, warnings } = loadConfig(tmp);
+    expect(config.debugLogDir).toBe(DEFAULT_CONFIG.debugLogDir);
+    expect(warnings.some(w => w.includes("debugLogDir") && w.includes(".."))).toBe(true);
+  });
+
+  it("accepts debugLogDir without '..'", () => {
+    writeConfig(JSON.stringify({ debugLogDir: ".pi/custom-logs" }));
+    const { config, warnings } = loadConfig(tmp);
+    expect(config.debugLogDir).toBe(".pi/custom-logs");
+    expect(warnings).toHaveLength(0);
   });
 });

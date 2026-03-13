@@ -305,6 +305,8 @@ describe("collectDiagnostics — config awareness", () => {
         debugLogDir: ".pi/custom-logs",
         debugLogFilenameStyle: "timestamp",
         maxArchiveListEntries: 5,
+        currentStateTemplate: null,
+        injectPlanContext: true,
       },
       warnings: ["test warning"],
       source: "file",
