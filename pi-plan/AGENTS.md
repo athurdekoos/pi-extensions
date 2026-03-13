@@ -179,4 +179,7 @@ See `tests/TESTING.md` for coverage strategy and what each test file proves.
 | `docs/architecture.md` | Architecture, state model, command flows |
 | `docs/file-contracts.md` | Repo-local file semantics and contracts |
 | `tests/TESTING.md` | Test coverage strategy |
+| `CHANGELOG.md` | Version history |
+| `CONTRIBUTING.md` | Contributor guide: where to make changes, how to test |
+| `RELEASE_CHECKLIST.md` | Pre-release verification checklist |
 | `README.md` | User-facing documentation |

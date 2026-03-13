@@ -11,14 +11,16 @@ Lightweight checklist for verifying `pi-plan/` before a release or significant c
 
 ## Tests
 
-- [ ] `npm test` passes (all 308 tests)
+- [ ] `npm test` passes (all 452 tests)
 - [ ] No skipped or pending tests without explanation
 - [ ] `tests/TESTING.md` accurately describes what is and is not covered
 
 ## Install and load
 
 - [ ] `pi -e ~/dev/pi-extensions/pi-plan` loads without errors
-- [ ] `/plan` and `/plan-debug` are registered and appear in command list
+- [ ] `/plan`, `/plan-debug`, `/todos`, `/plan-review`, `/plan-annotate` are registered
+- [ ] `submit_plan` tool is registered
+- [ ] `--plan` flag is recognized
 - [ ] `pi install /path/to/pi-plan` works for global install
 
 ## Manual verification
@@ -41,6 +43,22 @@ Lightweight checklist for verifying `pi-plan/` before a release or significant c
 - [ ] Install instructions point to `pi-plan/`, not root `.pi/` legacy files
 - [ ] Config examples use `.pi/pi-plan.json` (repo-local, created by user), not legacy state files
 - [ ] User-facing command examples show `/plan` and `/plan-debug` only (not legacy commands)
+
+## Browser review system
+
+- [ ] `assets/plan-review.html` exists and is loadable
+- [ ] `assets/review-editor.html` exists and is loadable
+- [ ] `submit_plan` returns error when assets are missing (no auto-approve)
+- [ ] Review records are written to `.pi/plans/reviews/`
+
+## Enforcement
+
+- [ ] `--plan` flag activates enforcement on session start
+- [ ] `/plan` toggles enforcement on/off
+- [ ] Step tracking extracts from `## Implementation Plan` / `## Steps`
+- [ ] `[DONE:n]` markers update step completion
+- [ ] Write-gating blocks writes outside `current.md` during `needs-plan` phase
+- [ ] Context messages are injected and filtered correctly
 
 ## No regressions
 

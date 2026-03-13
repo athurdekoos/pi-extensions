@@ -6,7 +6,7 @@ A collection of extensions for [`@mariozechner/pi-coding-agent`](https://github.
 
 | Extension | Description | Status |
 |-----------|-------------|--------|
-| [pi-plan](./pi-plan/) | Repo-local planning workflow: `/plan` and `/plan-debug` commands with template-driven generation, archive lifecycle, and diagnostics | Ready |
+| [pi-plan](./pi-plan/) | Repo-local planning workflow with browser-based visual review: `/plan`, `/plan-debug`, `/todos`, `/plan-review`, `/plan-annotate` commands, `submit_plan` tool, `--plan` flag, enforcement toggle with step tracking, template-driven generation, archive lifecycle, and diagnostics | Ready |
 | [pi-clear](./pi-clear/) | `/clear` command to start a fresh session, optionally carrying over the editor draft | Ready |
 | [pi-gh](./pi-gh/) | Structured GitHub CLI tools for issues, PRs, Actions, and repo info | Ready |
 | [pi-google-adk](./pi-google-adk/) | Create, import, discover, resolve, and run Python-first Google ADK agent projects | In Work |
@@ -176,9 +176,21 @@ cp -r pi-clear/ /path/to/project/.pi/extensions/pi-clear/
 
 ### pi-plan
 
-Adds `/plan` and `/plan-debug` commands for repo-local planning. Detects the current git repo, initializes a `.pi/` planning structure, and provides a four-state workflow: initialization, plan creation with template-driven generation, active plan management (resume/replace/revisit), and archive lifecycle. Supports inline goal passthrough, explicit placeholder substitution (`{{GOAL}}`, `{{REPO_ROOT}}`, `{{CURRENT_STATE}}`), lightweight repo-local config, and deterministic index reconciliation.
+Repo-local planning extension with browser-based visual review for Pi Coding Agent. Detects the current git repo, initializes a `.pi/` planning structure, and provides a four-state workflow: initialization, plan creation with template-driven generation, active plan management (resume/replace/revisit), and archive lifecycle.
 
-308 automated tests. Requires `@mariozechner/pi-coding-agent`, `@sinclair/typebox`, and Git.
+**Commands:** `/plan` (toggle enforcement + manage plans), `/plan-debug` (diagnostic snapshot), `/todos` (step progress), `/plan-review` (browser-based code review for git diffs), `/plan-annotate` (browser-based markdown annotation).
+
+**Tool:** `submit_plan` — agent-callable tool that opens a browser-based visual review UI where the user can approve or deny the plan with feedback. No auto-approve: returns an error if the browser UI is unavailable.
+
+**Flag:** `--plan` — start Pi with plan enforcement enabled.
+
+**Enforcement:** `/plan` is a toggle. When enforcement is ON, the extension injects plan-state context into agent turns, tracks step completion via `[DONE:n]` markers, gates file writes outside `current.md` during planning, and provides a status line and widget showing progress. Supports both numbered (`1. Step`) and checkbox (`- [ ] Step`) step formats.
+
+**Review records:** All review decisions are recorded as append-only JSON under `.pi/plans/reviews/`.
+
+Supports inline goal passthrough, explicit placeholder substitution (`{{GOAL}}`, `{{REPO_ROOT}}`, `{{CURRENT_STATE}}`), lightweight repo-local config, and deterministic index reconciliation.
+
+452 automated tests across 19 files. Requires `@mariozechner/pi-coding-agent`, `@sinclair/typebox`, and Git.
 
 ### pi-clear
 
@@ -267,8 +279,23 @@ pi-extensions/
   .gitignore
   .pi/                                     # repo-local planning workspace (see below)
   pi-plan/                                 # ← canonical shareable planning package
-    index.ts, orchestration.ts, plangen.ts, archive.ts, ...
-    package.json, README.md, tests/
+    index.ts              # command/tool/flag registration, lifecycle hooks
+    orchestration.ts      # command handler logic, PlanUI interface
+    plangen.ts            # template-aware plan generation
+    archive.ts            # archive lifecycle, index reconciliation
+    auto-plan.ts          # enforcement state machine
+    harness.ts            # input interception
+    mode-utils.ts         # step extraction and [DONE:n] tracking
+    review.ts             # browser review orchestration
+    server.ts             # ephemeral HTTP servers for review UIs
+    browser.ts            # system browser launcher
+    template-core.ts      # shared template primitives
+    template-analysis.ts  # template mode classification
+    repo.ts, config.ts, defaults.ts, summary.ts, diagnostics.ts
+    assets/               # plan-review.html, review-editor.html
+    docs/                 # architecture.md, file-contracts.md
+    tests/                # 452 tests across 19 files
+    package.json, README.md, AGENTS.md, CHANGELOG.md, CONTRIBUTING.md
   pi-clear/
     AGENTS.md, package.json, index.ts, README.md
   pi-gh/

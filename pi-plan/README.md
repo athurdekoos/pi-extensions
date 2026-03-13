@@ -503,7 +503,7 @@ echo "# Plan: Manual\n\n## Goal\n\nManually added." > .pi/plans/archive/2026-01-
 cd pi-plan && npm test
 ```
 
-Tests cover (452+ tests across 19 files):
+Tests cover (452 tests across 19 files):
 - **Config handling** — defaults when missing, valid overrides, invalid fallback with warnings,
   resolved paths, per-field validation, mixed valid/invalid fields, unknown keys
 - **Summary extraction** — Goal section lines, maxLines, placeholder skipping, fallback behavior
@@ -584,7 +584,7 @@ pi-plan/
     review-editor.html  # Pre-built code review UI
   package.json          # Pi package manifest
   vitest.config.ts      # Test config
-  tests/                # 452+ tests across 19 files
+  tests/                # 452 tests across 19 files
   README.md
 ```
 

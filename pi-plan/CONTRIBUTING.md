@@ -35,7 +35,7 @@ This loads the extension from source. You can then use `/plan` and `/plan-debug`
 cd pi-plan && npm test
 ```
 
-All 308 tests run via vitest against temp directories. No Pi runtime or real git repos required.
+All 452 tests run via vitest against temp directories. No Pi runtime or real git repos required.
 
 ## Validating changes
 
@@ -65,7 +65,13 @@ The manual path covers: initialization, plan creation, inline args, resume/repla
 | Default file contents or sentinel | `defaults.ts` |
 | Summary extraction, archive labels | `summary.ts` |
 | Diagnostic snapshots | `diagnostics.ts` |
-| Command registration (thin bridge) | `index.ts` |
+| Plan enforcement state machine | `auto-plan.ts` |
+| Harness-level input interception | `harness.ts` |
+| Step extraction and done-marker tracking | `mode-utils.ts` |
+| Browser review orchestration | `review.ts` |
+| Ephemeral HTTP review servers | `server.ts` |
+| System browser launching | `browser.ts` |
+| Command/tool/flag registration (thin bridge) | `index.ts` |
 
 ### What NOT to edit for packaged behavior
 
@@ -73,9 +79,21 @@ The manual path covers: initialization, plan creation, inline args, resume/repla
 - **`.pi/legacy/`** — Historical reference only. Not loaded at runtime.
 - **`.pi/docs/`** — Historical docs for the legacy extension. The canonical docs are in `pi-plan/`.
 
+### v2.0 surface
+
+The following were added in v2.0.0 and are part of the packaged extension surface:
+
+- **`submit_plan` tool** — agent-callable browser-based plan review (registered in `index.ts`, orchestrated by `review.ts`)
+- **`--plan` flag** — start with enforcement enabled (registered in `index.ts`, consumed by `auto-plan.ts`)
+- **`/todos` command** — show step progress (registered in `index.ts`, uses `auto-plan.ts` state)
+- **`/plan-review` command** — browser-based code review for git diffs (registered in `index.ts`, uses `review.ts` + `server.ts`)
+- **`/plan-annotate` command** — browser-based markdown annotation (registered in `index.ts`, uses `review.ts` + `server.ts`)
+- **Enforcement system** — `auto-plan.ts` (state machine), `harness.ts` (input interception), `mode-utils.ts` (step tracking)
+- **Browser review system** — `review.ts` (orchestration), `server.ts` (HTTP servers), `browser.ts` (launcher), `assets/` (HTML UIs)
+
 ## Key invariants to preserve
 
-These are documented in detail in [`AGENTS.md`](AGENTS.md). The critical ones:
+These are documented in detail in [`AGENTS.md`](AGENTS.md) (21 invariants). The critical ones:
 
 1. **One active `current.md`** — placeholder or real plan, never both.
 2. **Archives are immutable** — once written, never modified by the extension.
@@ -84,6 +102,12 @@ These are documented in detail in [`AGENTS.md`](AGENTS.md). The critical ones:
 5. **`index.md` is fully regenerated** — never patched.
 6. **Config never throws** — always falls back to defaults.
 7. **Template system has no circular imports** — `template-core.ts` → `template-analysis.ts` → `plangen.ts`.
+8. **Enforcement is toggle-based** — `/plan` toggles on/off. When off, pi-plan is a document manager only.
+9. **Harness-level interception never blocks** — the user's message always reaches the agent.
+10. **No home-directory state** — all canonical state lives in repo-local files under `.pi/`.
+11. **No auto-approve** — browser UI is required for plan review; missing assets return an error.
+
+See [`AGENTS.md`](AGENTS.md) for the full list of invariants, including enforcement, harness, and review system invariants.
 
 ## Internal documentation
 
@@ -94,6 +118,8 @@ These are documented in detail in [`AGENTS.md`](AGENTS.md). The critical ones:
 | [`docs/file-contracts.md`](docs/file-contracts.md) | Repo-local file semantics and contracts |
 | [`tests/TESTING.md`](tests/TESTING.md) | Test coverage strategy and evidence boundaries |
 | [`CHANGELOG.md`](CHANGELOG.md) | Version history |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | This file — contributor guide |
+| [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) | Pre-release verification checklist |
 | [`README.md`](README.md) | User-facing documentation and manual verification steps |
 
 ## Development notes
