@@ -134,6 +134,16 @@ export function readAdkMetadataValidated(
 // ---------------------------------------------------------------------------
 
 /**
+ * Pi built-in tool names. Keep in sync with pi-coding-agent SDK's
+ * readOnlyTools / codingTools definitions.
+ * See: @mariozechner/pi-coding-agent/src/tools/index.ts
+ */
+const PI_BUILTIN_TOOLS = new Set([
+  "read", "bash", "edit", "write", "grep", "find", "ls",
+  "delegate_to_subagent",
+]);
+
+/**
  * Detect extension tools currently available in the safe tool registry.
  *
  * This uses the same registry that pi-subagents uses for safeCustomTools
@@ -146,12 +156,8 @@ export function readAdkMetadataValidated(
 export function detectCurrentExtensionTools(
   safeToolRegistry: Map<string, ToolDefinition>
 ): string[] {
-  const builtins = new Set([
-    "read", "bash", "edit", "write", "grep", "find", "ls",
-    "delegate_to_subagent",
-  ]);
   return Array.from(safeToolRegistry.keys())
-    .filter((name) => !builtins.has(name))
+    .filter((name) => !PI_BUILTIN_TOOLS.has(name))
     .sort();
 }
 
@@ -364,9 +370,11 @@ function buildNotes(
     }
   }
 
-  // Phase 5A: surface schema diagnostics that might affect delegation
-  if (validation?.metadata?._schema_diagnostics) {
-    for (const diag of validation.metadata._schema_diagnostics) {
+  // Phase 5A: surface schema diagnostics that might affect delegation.
+  // _schema_diagnostics is defined on NormalizedMetadata from the shared schema.
+  const diagnostics = (validation?.metadata as { _schema_diagnostics?: string[] } | undefined)?._schema_diagnostics;
+  if (diagnostics) {
+    for (const diag of diagnostics) {
       notes.push(`Schema: ${diag}`);
     }
   }

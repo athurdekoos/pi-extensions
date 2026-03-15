@@ -141,6 +141,8 @@ if (register) {
 
 4. When `agent` is provided, `run_adk_agent` is auto-allowlisted using a deduped Set (no mutation of the caller's array).
 
+**Load order note:** The pending tool queue (`__piSubagents_pendingSafeTools`) is drained once when pi-subagents initializes. Extensions that load *after* pi-subagents must use `__piSubagents_registerSafeTool()` directly instead of pushing to the pending queue.
+
 ### Design principles
 
 - **Explicit over implicit**: no tools are inherited automatically

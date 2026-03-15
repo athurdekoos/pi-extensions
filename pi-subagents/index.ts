@@ -630,7 +630,8 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
         safeToolRegistry.set(tool.name, tool);
       }
     }
-    // Clear the pending array now that we've drained it
+    // Note: Queue is drained once at init. Extensions loading AFTER
+    // pi-subagents must use __piSubagents_registerSafeTool() directly.
     g[PENDING_KEY] = [];
   }
 
@@ -771,8 +772,11 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
           params.safeCustomTools,
         );
 
-        // Light interactive confirm/warn when UI is available and
-        // there are meaningful mismatches worth surfacing.
+        // Advisory-first: show interactive confirm only when there ARE issues
+        // (needs_attention) AND actionable remediation steps exist
+        // (ui_prompt_recommended). When needs_attention is true but no actions
+        // are available, remediation is still included in output text via
+        // formatRemediationForOutput — just not elevated to a blocking dialog.
         if (
           delegationRemediation.needs_attention &&
           delegationRemediation.ui_prompt_recommended
@@ -819,12 +823,25 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
         : buildChildSystemPrompt(params);
 
       // Resolve model: use override if provided, else fall back to parent model.
+      const warnings: string[] = [];
       let childModel = ctx.model;
-      if (params.modelOverride && ctx.modelRegistry) {
-        const parts = params.modelOverride.split("/");
-        if (parts.length === 2) {
-          const found = ctx.modelRegistry.find(parts[0], parts[1]);
-          if (found) childModel = found;
+      let modelOverrideApplied = false;
+      if (params.modelOverride) {
+        if (!ctx.modelRegistry) {
+          warnings.push(`Model override "${params.modelOverride}" ignored: no model registry available.`);
+        } else {
+          const parts = params.modelOverride.split("/");
+          if (parts.length !== 2 || !parts[0] || !parts[1]) {
+            warnings.push(`Model override "${params.modelOverride}" ignored: expected "provider/model-id" format.`);
+          } else {
+            const found = ctx.modelRegistry.find(parts[0], parts[1]);
+            if (found) {
+              childModel = found;
+              modelOverrideApplied = true;
+            } else {
+              warnings.push(`Model override "${params.modelOverride}" ignored: model not found in registry.`);
+            }
+          }
         }
       }
 
@@ -935,6 +952,7 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
                 finalText || "(No output from subagent)",
                 "",
                 `--- End Subagent Result (${totalMessages} messages exchanged) ---`,
+                ...(warnings.length > 0 ? ["", ...warnings.map((w) => `⚠ ${w}`)] : []),
                 advisoryBlock,
                 remediationBlock,
               ].join("\n"),
@@ -942,6 +960,8 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
           ],
           details: {
             childMessages: totalMessages,
+            modelOverrideApplied,
+            ...(warnings.length > 0 ? { warnings } : {}),
             ...(delegationAdvice ? { adk_delegation_advice: delegationAdvice } : {}),
             ...(delegationRemediation ? { adk_delegation_remediation: delegationRemediation } : {}),
           },
@@ -975,8 +995,8 @@ export default function piSubagentsExtension(pi: ExtensionAPI): void {
         if (session) {
           try {
             session.dispose();
-          } catch {
-            // Ignore disposal errors.
+          } catch (err) {
+            console.error("pi-subagents: failed to dispose child session:", err);
           }
         }
       }
