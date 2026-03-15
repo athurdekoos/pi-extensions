@@ -11,15 +11,15 @@ Lightweight checklist for verifying `pi-plan/` before a release or significant c
 
 ## Tests
 
-- [ ] `npm test` passes (all 452 tests)
+- [ ] `npm test` passes (all 571 tests)
 - [ ] No skipped or pending tests without explanation
 - [ ] `tests/TESTING.md` accurately describes what is and is not covered
 
 ## Install and load
 
 - [ ] `pi -e ~/dev/pi-extensions/pi-plan` loads without errors
-- [ ] `/plan`, `/plan-debug`, `/todos`, `/plan-review`, `/plan-annotate` are registered
-- [ ] `submit_plan` tool is registered
+- [ ] `/plan`, `/plan-debug`, `/todos`, `/tdd`, `/plan-review`, `/plan-annotate`, `/plan-finish` are registered
+- [ ] `submit_plan` and `submit_spec` tools are registered
 - [ ] `--plan` flag is recognized
 - [ ] `pi install /path/to/pi-plan` works for global install
 
@@ -59,6 +59,30 @@ Lightweight checklist for verifying `pi-plan/` before a release or significant c
 - [ ] `[DONE:n]` markers update step completion
 - [ ] Write-gating blocks writes outside `current.md` during `needs-plan` phase
 - [ ] Context messages are injected and filtered correctly
+
+## TDD, brainstorming, and worktree
+
+- [ ] `/tdd` toggles TDD enforcement on/off
+- [ ] TDD gating blocks production file writes before test files during executing phase
+- [ ] TDD compliance is logged to `.pi/tdd/compliance-YYYY-MM-DD.json`
+- [ ] `[DONE:n]` validation checks TDD compliance
+- [ ] `submit_spec` tool is registered and transitions brainstorming → planning
+- [ ] Brainstorm specs are written to `.pi/specs/` with correct filename format
+- [ ] Specs are immutable after write
+- [ ] Worktree is created at `.worktrees/<slug>/` with `plan/<slug>` branch
+- [ ] `.worktrees/` is added to `.gitignore`
+- [ ] Worktree state is persisted in `.pi/worktrees/active.json`
+- [ ] Worktree cleanup removes worktree and state on plan completion
+
+## Finishing workflow
+
+- [ ] `/plan-finish` is registered and accessible
+- [ ] Finishing menu shows merge/PR/keep/discard options
+- [ ] `gh` unavailability hides PR option
+- [ ] Write-gating blocks all writes during finishing phase
+- [ ] `defaultFinishAction` config skips menu when set
+- [ ] `prTemplate` substitution works with `{{BRANCH}}` and `{{PLAN_TITLE}}`
+- [ ] Session interrupted during finishing degrades to has-plan on restore
 
 ## No regressions
 

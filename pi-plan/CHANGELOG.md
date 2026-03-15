@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.2.0 — Branch finishing workflow
+
+### Added
+- **`/plan-finish` command** — manually trigger the branch finishing workflow (merge, PR, keep, discard)
+- **`finish.ts`** — deterministic branch finishing module with ExecFn seam for testability
+- **`"finishing"` phase** — new `AutoPlanPhase` state with write-gating during finishing workflow
+- **2 new config options** — `defaultFinishAction` (FinishAction | null), `prTemplate` (string | null)
+- **`finish.test.ts`** — 28 tests for finishing module (merge, PR, keep, discard, PR body generation)
+- **`finishing-phase.test.ts`** — 10 tests for finishing phase display, write-gating, serialization
+
+### Changed
+- `auto-plan.ts` — `AutoPlanPhase` expanded from 8 to 9 phases
+- `hooks.ts` — `handleAgentEnd` now orchestrates finishing workflow; `handleToolCallGate` blocks writes during finishing; `handleSessionStart` degrades finishing → has-plan on restore; `HookContext.ui` extended with `select` and `input`
+- `worktree.ts` — `cleanupWorktree` now accepts `opts?: { deleteBranch?: boolean }` (default true)
+- `config.ts` — added 2 new fields to `PiPlanConfig`
+- `index.ts` — registered `/plan-finish` command; imports from `finish.ts`
+- Test count: 533 → 571 across 22 → 24 files
+- Updated all documentation
+
 ## 2.1.0 — TDD enforcement, brainstorming, worktree isolation
 
 ### Added

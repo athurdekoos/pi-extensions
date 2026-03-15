@@ -74,6 +74,8 @@ When you're ready for a new task:
 3. The old plan is archived to `.pi/plans/archive/` (immutable, never deleted)
 4. Enter your new goal
 
+With worktrees enabled, plan completion triggers a finishing workflow where you choose how to land your work (merge, PR, keep, discard) before archiving. See [finishing a plan](workflows.md#9-finishing-a-plan-with-branch-actions) for details.
+
 You can revisit archived plans anytime via `/plan` → **Revisit archived plans**.
 
 ## What's next
@@ -82,6 +84,7 @@ You can revisit archived plans anytime via `/plan` → **Revisit archived plans*
 - **Brainstorming**: Enable `brainstormEnabled` in `.pi/pi-plan.json` to add a design phase before planning
 - **Worktree isolation**: Enable `worktreeEnabled` to give each plan its own git branch
 - **Custom templates**: Edit `.pi/templates/task-plan.md` to shape generated plans
-- **Configuration**: See the [configuration reference](../README.md#configuration) for all 18 options
+- **Finishing workflow**: When a plan completes with a worktree active, choose to merge, create a PR, keep the branch, or discard via `/plan-finish`
+- **Configuration**: See the [configuration reference](../README.md#configuration) for all 21 options
 
 See [docs/workflows.md](workflows.md) for common workflow patterns.

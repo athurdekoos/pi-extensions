@@ -2,7 +2,7 @@
 
 ## What is `pi-plan/`?
 
-`pi-plan/` is the **canonical shareable package** for the Pi planning extension. It provides the `/plan` and `/plan-debug` commands as a properly packaged, tested, modular Pi extension.
+`pi-plan/` is the **canonical shareable package** for the Pi planning extension. It provides the `/plan`, `/plan-debug`, `/plan-finish`, and other commands as a properly packaged, tested, modular Pi extension.
 
 If you want to change how the planning extension behaves for users, this is where you work.
 
@@ -27,7 +27,7 @@ The root `.pi/plans/` directory is actively used by `pi-plan` for this repositor
 pi -e ~/dev/pi-extensions/pi-plan
 ```
 
-This loads the extension from source. You can then use `/plan` and `/plan-debug` in any git repository.
+This loads the extension from source. You can then use `/plan`, `/plan-debug`, `/todos`, `/tdd`, `/plan-review`, `/plan-annotate`, and `/plan-finish` in any git repository.
 
 ### Running tests
 
@@ -35,7 +35,7 @@ This loads the extension from source. You can then use `/plan` and `/plan-debug`
 cd pi-plan && npm test
 ```
 
-All 452 tests run via vitest against temp directories. No Pi runtime or real git repos required.
+All 571 tests run via vitest against temp directories. No Pi runtime or real git repos required.
 
 ## Validating changes
 
@@ -68,6 +68,10 @@ The manual path covers: initialization, plan creation, inline args, resume/repla
 | Plan enforcement state machine | `auto-plan.ts` |
 | Harness-level input interception | `harness.ts` |
 | Step extraction and done-marker tracking | `mode-utils.ts` |
+| TDD enforcement and compliance logging | `tdd.ts` |
+| Brainstorming specs I/O | `brainstorm.ts` |
+| Git worktree isolation | `worktree.ts` |
+| Branch finishing workflow | `finish.ts` |
 | Browser review orchestration | `review.ts` |
 | Ephemeral HTTP review servers | `server.ts` |
 | System browser launching | `browser.ts` |
@@ -91,9 +95,32 @@ The following were added in v2.0.0 and are part of the packaged extension surfac
 - **Enforcement system** — `auto-plan.ts` (state machine), `harness.ts` (input interception), `mode-utils.ts` (step tracking)
 - **Browser review system** — `review.ts` (orchestration), `server.ts` (HTTP servers), `browser.ts` (launcher), `assets/` (HTML UIs)
 
+### v2.1 surface
+
+The following were added in v2.1.0:
+
+- **`/tdd` command** — toggle TDD enforcement, show compliance summary (registered in `index.ts`, uses `tdd.ts`)
+- **`submit_spec` tool** — submit design spec during brainstorming (registered in `index.ts`, uses `brainstorm.ts`)
+- **TDD enforcement** — `tdd.ts` (gate logic, compliance logging)
+- **Brainstorming phase** — `brainstorm.ts` (spec I/O, filename generation)
+- **Git worktree isolation** — `worktree.ts` (creation, cleanup, state persistence)
+- **6 new config options** — `tddEnforcement`, `testFilePatterns`, `brainstormEnabled`, `worktreeEnabled`, `specDir`, `tddLogDir`, `worktreeStateDir`
+- **3 new `.pi/` subdirectories** — `specs/`, `tdd/`, `worktrees/`
+
+### v2.2 surface
+
+The following were added in v2.2.0:
+
+- **`/plan-finish` command** — manually trigger branch finishing workflow (registered in `index.ts`, logic in `finish.ts`)
+- **`finish.ts`** — deterministic branch finishing with ExecFn seam (merge, PR, keep, discard)
+- **`"finishing"` phase** — write-gated phase in `auto-plan.ts`, gated in `hooks.ts`
+- **2 new config options** — `defaultFinishAction`, `prTemplate`
+- **Hooks changes** — `handleAgentEnd` in `hooks.ts` now orchestrates finishing workflow; `HookContext.ui` extended with `select` and `input`
+- **Worktree changes** — `cleanupWorktree` accepts `opts.deleteBranch` for conditional branch preservation
+
 ## Key invariants to preserve
 
-These are documented in detail in [`AGENTS.md`](AGENTS.md) (21 invariants). The critical ones:
+These are documented in detail in [`AGENTS.md`](AGENTS.md) (30 invariants). The critical ones:
 
 1. **One active `current.md`** — placeholder or real plan, never both.
 2. **Archives are immutable** — once written, never modified by the extension.
@@ -106,8 +133,12 @@ These are documented in detail in [`AGENTS.md`](AGENTS.md) (21 invariants). The 
 9. **Harness-level interception never blocks** — the user's message always reaches the agent.
 10. **No home-directory state** — all canonical state lives in repo-local files under `.pi/`.
 11. **No auto-approve** — browser UI is required for plan review; missing assets return an error.
+12. **TDD gate is pure** — `evaluateTddGate()` has no side effects.
+13. **TDD compliance logs are append-only** — existing entries never modified.
+14. **Specs are immutable** — brainstorm specs never modified after write.
+15. **Worktrees are gitignored** — `.worktrees/` always in `.gitignore`.
 
-See [`AGENTS.md`](AGENTS.md) for the full list of invariants, including enforcement, harness, and review system invariants.
+See [`AGENTS.md`](AGENTS.md) for the full list of invariants, including enforcement, harness, TDD, brainstorm, worktree, and review system invariants.
 
 ## Internal documentation
 

@@ -168,3 +168,52 @@ Available placeholders:
 Templates without placeholders still work — "Goal" and "Current State" sections get special handling via section-name fallback.
 
 If the template is missing or malformed, `/plan` offers to restore the default. Declining still allows plan generation using built-in fallback sections.
+
+## 9. Finishing a plan with branch actions
+
+When all steps are marked `[DONE:n]` and a worktree is active, pi-plan enters the **finishing phase** — a write-gated state where you decide how to land your work. The agent cannot interfere; this is entirely user-controlled via a deterministic menu.
+
+### Automatic finishing (on plan completion)
+
+When the last step is marked done, pi-plan automatically:
+1. Archives the completed plan
+2. Presents a finishing menu with four options:
+
+- **Merge into base branch locally** — runs `git merge --no-ff`, cleans up worktree + branch
+- **Create pull request** — pushes branch, runs `gh pr create`, cleans up worktree only (branch stays for the PR)
+- **Keep branch** — removes the worktree but keeps the branch for manual work later
+- **Discard** — removes both the worktree and the branch
+
+If `gh` CLI is not installed, the PR option is hidden automatically.
+
+### Manual finishing
+
+If a session is interrupted during finishing, the phase degrades to `has-plan` on restore. The worktree remains intact. Use `/plan-finish` to re-enter the finishing workflow:
+
+```
+/plan-finish
+```
+
+This command is available whenever a worktree exists, regardless of phase.
+
+### Configuring defaults
+
+Skip the menu entirely by setting a default action:
+
+```json
+{
+  "defaultFinishAction": "pr",
+  "prTemplate": "## {{PLAN_TITLE}}\n\nBranch: `{{BRANCH}}`"
+}
+```
+
+The `prTemplate` supports `{{BRANCH}}` and `{{PLAN_TITLE}}` placeholders for PR body customization.
+
+### Edge cases
+
+| Scenario | Behavior |
+|---|---|
+| No worktree active | Finishing menu is skipped; plan is auto-archived |
+| Merge conflict | Merge is aborted, error shown, user re-selects |
+| Push failure | Error with git stderr, user re-selects |
+| No `gh` CLI | PR option hidden from menu |

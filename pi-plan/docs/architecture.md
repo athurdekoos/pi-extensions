@@ -3,27 +3,37 @@
 ## High-Level Overview
 
 ```
-User ─→ /plan or /plan-debug
+User ─→ /plan, /plan-debug, /todos, /tdd, /plan-review, /plan-annotate, /plan-finish
          │
          ▼
-     index.ts          ← command registration + UI orchestration
+     index.ts          ← command/tool registration + UI orchestration
          │
          ▼
    orchestration.ts    ← command handler logic, PlanUI interface, template repair UX
          │
-    ┌────┼────────────────────────┐
-    │    │                        │
-    ▼    ▼         ▼         ▼    ▼
- repo.ts  plangen.ts  archive.ts  diagnostics.ts
-    │         │          │             │
-    ▼         ▼          │             │
- defaults.ts  │     config.ts     summary.ts
-              │          │
-              ▼          ▼
+    ┌────┼────────────────────────────────────────┐
+    │    │                        │                │
+    ▼    ▼         ▼         ▼    ▼                ▼
+ repo.ts  plangen.ts  archive.ts  diagnostics.ts  auto-plan.ts
+    │         │          │             │               │
+    ▼         ▼          │             │          ┌────┼────┐
+ defaults.ts  │     config.ts     summary.ts      │    │    │
+              │          │                         ▼    ▼    ▼
+              ▼          ▼                    tdd.ts brainstorm.ts worktree.ts
          template-core.ts  ← shared template primitives
               │
               ▼
          template-analysis.ts  ← mode classification
+
+    hooks.ts  ← lifecycle hook handlers (tool_call, input, agent_end, etc.)
+        │
+        ▼
+    finish.ts  ← branch finishing workflow (merge, PR, keep, discard)
+        │
+        ├── archive.ts (auto-archive before action)
+        ├── config.ts (loadConfig for archive settings)
+        ├── defaults.ts (CURRENT_PLAN_PLACEHOLDER)
+        └── worktree.ts (cleanupWorktree with deleteBranch option)
 ```
 
 ### Module Dependency Graph (Template System)
@@ -49,7 +59,11 @@ template system.
 
 ### Module Roles
 
-- **`index.ts`** — Thin command registration. Registers `/plan` and `/plan-debug`, bridges Pi's `ExtensionAPI` to the `PlanUI` interface, delegates all logic to `orchestration.ts`.
+- **`tdd.ts`** — TDD enforcement gate logic. Pure function `evaluateTddGate()` decides whether a file write is allowed based on test-first requirements. `isTestFile()` detects test files via configurable glob patterns. `validateStepCompletion()` checks TDD compliance before `[DONE:n]` markers. `logTddCompliance()` appends to daily JSON logs.
+- **`brainstorm.ts`** — Brainstorming spec I/O. `writeSpec()` creates immutable spec files in `.pi/specs/` with `YYYY-MM-DD-HHMM-slug.md` naming. `listSpecs()` returns specs newest-first. `readSpec()` reads spec content. Pure filesystem operations.
+- **`worktree.ts`** — Git worktree isolation. `createWorktreeForPlan()` creates an isolated worktree at `.worktrees/<slug>/` with branch `plan/<slug>`. `cleanupWorktree()` removes worktrees and optionally deletes the branch (`opts.deleteBranch`, default: true). State is persisted via `writeWorktreeState()` / `readWorktreeState()` in `.pi/worktrees/active.json`. Auto-detects setup commands (npm, yarn, pip, etc.).
+- **`finish.ts`** — Deterministic branch finishing workflow. Pure functions with `ExecFn` seam. `executeFinishing()` orchestrates the four-option menu (merge, PR, keep, discard). `mergeLocally()` does a `--no-ff` merge with conflict abort. `createPullRequest()` pushes and runs `gh pr create`. `generatePrBody()` extracts title/goal/steps from plan content, supports `prTemplate` config with `{{BRANCH}}` and `{{PLAN_TITLE}}` substitution. `detectBaseBranch()` finds the remote HEAD. `isGhAvailable()` checks `gh` CLI availability.
+- **`index.ts`** — Thin command registration. Registers `/plan`, `/plan-debug`, `/todos`, `/tdd`, `/plan-review`, `/plan-annotate`, and `/plan-finish`. Registers `submit_plan` and `submit_spec` tools. Bridges Pi's `ExtensionAPI` to the `PlanUI` interface, delegates logic to `orchestration.ts`, `hooks.ts`, `tools.ts`, and `finish.ts`.
 - **`orchestration.ts`** — Command handler logic for `/plan` and `/plan-debug`. Defines the `PlanUI` interface for testability. Owns the business flow: state handling, goal resolution, plan creation/replace/resume/revisit, debug snapshot writing, template repair/reset UX (via `ensureTemplateUsable()`). Calls `reconcileIndex()` before key flows.
 - **`template-core.ts`** — Shared template primitives that both `plangen.ts` and `template-analysis.ts` depend on. Owns `TemplateSection` type, `TEMPLATE_PLACEHOLDERS` constant, `parseTemplate()`, `readTemplateSections()`, and `buildCurrentStateValue()` — the canonical builder for `{{CURRENT_STATE}}` content. Has no circular dependencies.
 - **`template-analysis.ts`** — Single source of truth for template interpretation. Classifies templates into four modes (`explicit-placeholders`, `legacy-section-fallback`, `default-fallback`, `invalid`). Detects placeholders, assesses usability, recommends repair. Used by both `plangen.ts` and `diagnostics.ts` so they never drift apart.
@@ -63,7 +77,9 @@ template system.
 
 ## State Model
 
-The extension recognizes four states:
+### Document State (`PlanState`)
+
+The document layer recognizes four states:
 
 | State | Condition |
 |---|---|
@@ -96,6 +112,43 @@ The `ExecFn` seam allows testing repo/state detection without a Pi runtime. The 
 3. File content includes `CURRENT_PLAN_SENTINEL` from `defaults.ts`
 
 A generated plan (`plangen.ts`) is guaranteed to never contain the sentinel string.
+
+### Enforcement State (`AutoPlanPhase`)
+
+When enforcement is active (`/plan` toggle or `--plan` flag), the state machine recognizes 9 phases:
+
+| Phase | Condition | Write-gating |
+|---|---|---|
+| `inactive` | Enforcement toggled OFF | None |
+| `no-repo` | Toggled ON, not in a git repo | None |
+| `not-initialized` | Toggled ON, `.pi/` missing | Blocks writes outside `current.md` |
+| `needs-plan` | Initialized, no current plan | Blocks writes outside `current.md` |
+| `brainstorming` | Design phase active | Allows spec writes, blocks prod writes |
+| `has-plan` | Current plan exists | None (transition to executing) |
+| `review-pending` | Plan submitted for browser review | Blocks all writes |
+| `executing` | Tracking step completion | TDD gating (test before prod) |
+| `finishing` | Plan complete, finishing workflow active | Blocks all writes |
+
+Most phase computation is a pure function in `auto-plan.ts:computePhase()`. The lifecycle phases (`brainstorming`, `review-pending`, `finishing`) are set imperatively by specific actions (not computed from filesystem state) but degrade to computed phases on session restore. The `AutoPlanState` interface tracks:
+
+```typescript
+interface AutoPlanState {
+  phase: AutoPlanPhase;
+  repoRoot: string | null;
+  todoItems: TodoItem[];
+  enforcementActive: boolean;
+  tddStepTestWritten: boolean;
+  worktreeActive: boolean;
+  worktreePath: string | null;
+  brainstormSpecPath: string | null;
+}
+```
+
+### `/tdd` command flow
+
+1. If TDD enforcement is currently ON → toggle OFF, show status
+2. If TDD enforcement is currently OFF → toggle ON, show compliance summary
+3. Compliance summary shows: steps completed, steps compliant, daily log path
 
 ## Template System (Phase 6 + 7 + 8)
 
@@ -270,6 +323,17 @@ The `{{CURRENT_STATE}}` placeholder expansion can be customized via `currentStat
 | `initialized-has-plan` | `/plan` → restore cancelled | `initialized-has-plan` (no change) |
 | `initialized-has-plan` | `/plan` → cancel | `initialized-has-plan` (no change) |
 | any | `/plan-debug` | no state change (read-only) |
+| `needs-plan` | brainstorm enabled + goal provided | `brainstorming` |
+| `brainstorming` | `submit_spec` approved | `needs-plan` → plan creation → `has-plan` |
+| `has-plan` | enforcement active + steps detected | `executing` |
+| `executing` | all steps completed | `has-plan` (plan complete, offer archive) |
+| `has-plan` | `submit_plan` called | `review-pending` |
+| `review-pending` | review approved | `has-plan` → `executing` |
+| `review-pending` | review denied | `has-plan` (feedback returned) |
+| `executing` | all steps marked `[DONE:n]` | `finishing` |
+| `finishing` | merge/PR/keep/discard completed | reset (phase recomputed) |
+| `finishing` | user cancels | stays `finishing` until action or session end |
+| `finishing` | session interrupted + restored | `has-plan` (graceful degradation) |
 
 ## How Config Influences Behavior
 
@@ -286,6 +350,18 @@ Config is loaded from `.pi/pi-plan.json` via `loadConfig(repoRoot)`. It affects:
 | `debugLogFilenameStyle` | Always `"timestamp"` |
 | `maxArchiveListEntries` | Cap on browse list (not on total stored) |
 | `currentStateTemplate` | Custom `{{CURRENT_STATE}}` expansion (affects all generation paths) |
+| `injectPlanContext` | Whether plan-state context messages are injected into agent turns |
+| `reviewDir` | Where review records are written |
+| `stepFormat` | Which step format to recognize (numbered/checkbox/both) |
+| `tddEnforcement` | Whether TDD write-gating is active during execution |
+| `testFilePatterns` | Glob patterns for test file detection |
+| `brainstormEnabled` | Whether brainstorming phase precedes planning |
+| `worktreeEnabled` | Whether plans execute in isolated worktrees |
+| `specDir` | Where brainstorm specs are stored |
+| `tddLogDir` | Where TDD compliance logs are written |
+| `worktreeStateDir` | Where worktree state files are stored |
+| `defaultFinishAction` | Default finishing action (skips menu when set; `null` = always ask) |
+| `prTemplate` | PR body template with `{{BRANCH}}` and `{{PLAN_TITLE}}` placeholders |
 
 Config loading never throws. Invalid fields fall back to defaults with per-field warnings.
 

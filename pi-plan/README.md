@@ -2,20 +2,20 @@
 
 Repo-local planning extension for [Pi Coding Agent](https://github.com/badlogic/pi-mono) with browser-based visual plan review, code review, and markdown annotation.
 
-## Status: v2.1.0
+## Status: v2.2.0
 
-v2.1.0 adds TDD enforcement, brainstorming phase, and git worktree isolation on top of browser-based review capabilities. All canonical state lives in `.pi/` — no home-directory state, no auto-approve.
+v2.2.0 adds a deterministic branch finishing workflow (merge, PR, keep, discard) on top of TDD enforcement, brainstorming, worktree isolation, and browser-based review. All canonical state lives in `.pi/` — no home-directory state, no auto-approve.
 
 ## How pi-plan Works
 
-pi-plan enforces a **plan-before-code discipline** via an 8-phase state machine that progressively gates what the AI agent can do. It is not just plan storage — it actively prevents implementation until a plan exists and is approved.
+pi-plan enforces a **plan-before-code discipline** via a 9-phase state machine that progressively gates what the AI agent can do. It is not just plan storage — it actively prevents implementation until a plan exists and is approved.
 
 ### The planning lifecycle
 
 When enforcement is enabled, pi-plan moves through these phases:
 
 ```
-inactive → not-initialized → needs-plan → brainstorming → has-plan → review-pending → executing
+inactive → not-initialized → needs-plan → brainstorming → has-plan → review-pending → executing → finishing
 ```
 
 1. **`not-initialized`** — You're in a git repo but `.pi/` doesn't exist yet. `/plan` offers to create the planning structure.
@@ -24,8 +24,9 @@ inactive → not-initialized → needs-plan → brainstorming → has-plan → r
 4. **`has-plan`** — A plan exists in `current.md`. The agent submits it for review via `submit_plan`.
 5. **`review-pending`** — The plan is open in the browser review UI. You approve or deny with feedback.
 6. **`executing`** — The plan is approved. The agent works through steps, marking each complete with `[DONE:n]`. TDD enforcement gates file writes if enabled.
+7. **`finishing`** — All steps done. The user chooses how to land the work: merge locally, create a pull request, keep the branch for later, or discard. Write-gated — the agent cannot interfere with the finishing decision.
 
-Phase is **computed, not stored** — it's derived from the enforcement toggle and filesystem state (does `.pi/` exist? does `current.md` have a real plan?). This means phase is always consistent and never stale.
+Most phases are **computed, not stored** — derived from the enforcement toggle and filesystem state (does `.pi/` exist? does `current.md` have a real plan?). A few lifecycle phases (`brainstorming`, `review-pending`, `finishing`) are set imperatively by specific actions but degrade gracefully to computed phases on session restore.
 
 ### What makes pi-plan special
 
@@ -34,6 +35,7 @@ Phase is **computed, not stored** — it's derived from the enforcement toggle a
 3. **No auto-approve** — Browser review is mandatory. If the browser UI is unavailable, `submit_plan` returns an error. Plans are never silently approved.
 4. **Graceful degradation** — Missing config uses defaults. Malformed JSON falls back with warnings. Missing templates use built-in fallback sections. Invalid config fields degrade per-field, not all-or-nothing. Nothing crashes.
 5. **Repo-local, no home-directory state** — Everything lives in `.pi/`. No global state, no background processes, no silent side effects.
+6. **Deterministic finishing** — When a plan completes, the user controls what happens to the branch via a menu (merge, PR, keep, discard). The agent never decides how to land work.
 
 ## Quick Start
 
@@ -188,6 +190,17 @@ Opens a browser-based code review UI for current git changes. Shows uncommitted,
 
 Opens any markdown file in a browser-based annotation UI. Feedback is sent back to the agent.
 
+### `/plan-finish` — branch finishing workflow
+
+Manually triggers the branch finishing workflow. Available whenever a worktree exists, regardless of current phase. Presents a menu with four options:
+
+- **Merge into base branch locally** — `git merge --no-ff`, cleanup worktree + branch
+- **Create pull request** — push branch, `gh pr create`, cleanup worktree only (if `gh` is available)
+- **Keep branch** — remove worktree, keep branch for later
+- **Discard** — remove both worktree and branch
+
+Useful for recovery from interrupted sessions where the phase degraded on restore but the worktree is still present. Configurable via `defaultFinishAction` and `prTemplate` in `.pi/pi-plan.json`.
+
 ## Tools
 
 ### `submit_plan`
@@ -250,6 +263,8 @@ Invalid values fall back to defaults with warnings — never crashes.
 | `specDir` | string | `".pi/specs"` | Relative path for brainstorm design specs |
 | `tddLogDir` | string | `".pi/tdd"` | Relative path for TDD compliance logs |
 | `worktreeStateDir` | string | `".pi/worktrees"` | Relative path for worktree state files |
+| `defaultFinishAction` | `"merge"` \| `"pr"` \| `"keep"` \| `"discard"` \| `null` | `null` | Default finishing action (skips menu when set; `null` = always ask) |
+| `prTemplate` | string \| null | `null` | PR body template with `{{BRANCH}}` and `{{PLAN_TITLE}}` placeholders |
 
 ### Example config
 
@@ -315,7 +330,7 @@ This makes the "no plan yet" vs "plan exists" distinction deterministic.
 
 ## State Model — `AutoPlanPhase`
 
-The enforcement state machine recognizes 8 phases:
+The enforcement state machine recognizes 9 phases:
 
 | Phase | Condition |
 |---|---|
@@ -327,8 +342,9 @@ The enforcement state machine recognizes 8 phases:
 | `has-plan` | Toggled ON, current plan exists |
 | `review-pending` | Plan submitted for browser review |
 | `executing` | Actively tracking step completion |
+| `finishing` | Plan complete, finishing workflow active (write-gated) |
 
-Phase transitions are pure functions of the toggle state and filesystem state. The `AutoPlanState` interface tracks: phase, repoRoot, todoItems, enforcementActive, tddStepTestWritten, worktreeActive, worktreePath, and brainstormSpecPath.
+Most phase transitions are pure functions of the toggle state and filesystem state. The lifecycle phases (`brainstorming`, `review-pending`, `finishing`) are set imperatively by specific actions but degrade to computed phases on session restore. The `AutoPlanState` interface tracks: phase, repoRoot, todoItems, enforcementActive, tddStepTestWritten, worktreeActive, worktreePath, and brainstormSpecPath.
 
 ### Step format support
 
@@ -442,7 +458,7 @@ When `worktreeEnabled` is enabled (default: `true`), each plan executes in an is
 - **Automatic creation**: `createWorktreeForPlan()` creates a worktree at `.worktrees/<slug>/` with branch `plan/<slug>`
 - **State persistence**: Active worktree info is stored in `.pi/worktrees/active.json`
 - **Setup detection**: Auto-detects and runs setup commands (npm install, yarn install, pip install, etc.)
-- **Cleanup**: `cleanupWorktree()` removes the worktree and cleans up state on plan completion
+- **Finishing workflow**: On plan completion, a menu offers four options: merge locally (`--no-ff`), create a pull request (via `gh`), keep the branch (remove worktree only), or discard both. See `/plan-finish`.
 - **Gitignore**: `.worktrees/` is automatically added to `.gitignore`
 
 ## What it does NOT do yet
@@ -462,7 +478,7 @@ When `worktreeEnabled` is enabled (default: `true`), each plan executes in an is
 cd pi-plan && npm test
 ```
 
-Tests cover (533 tests across 22 files):
+Tests cover (571 tests across 24 files):
 - **Config handling** — defaults when missing, valid overrides, invalid fallback with warnings,
   resolved paths, per-field validation, mixed valid/invalid fields, unknown keys
 - **Summary extraction** — Goal section lines, maxLines, placeholder skipping, fallback behavior
@@ -512,7 +528,7 @@ Tests cover (533 tests across 22 files):
 - **TDD enforcement** — `globToRegex`, `isTestFile`, `evaluateTddGate`, `validateStepCompletion`, `logTddCompliance`, test-first gating, `.pi/` file allowlisting
 - **Brainstorming** — `generateSpecFilename`, `writeSpec`, `readSpec`, `listSpecs`, spec immutability, filename format, newest-first ordering
 - **Worktree isolation** — `deriveWorktreeBranch`, `isWorktreeDirIgnored`, `addWorktreeDirToGitignore`, `detectSetupCommands`, `writeWorktreeState`, `readWorktreeState`, `createWorktreeForPlan`, `cleanupWorktree`, state persistence
-- **Auto-plan state machine** — `computePhase` for all 8 phases, `getContextMessage`, `extractStepsFromCurrentPlan`, `getStatusDisplay`, `getWidgetLines`, `serializeState`, `restoreState`, TDD and worktree state fields
+- **Auto-plan state machine** — `computePhase` for all 9 phases, `getContextMessage`, `extractStepsFromCurrentPlan`, `getStatusDisplay`, `getWidgetLines`, `serializeState`, `restoreState`, TDD and worktree state fields
 - **Harness interception** — `evaluateInput` for all phases, context injection, never-blocks invariant
 - **Integration** — TDD gating during execution, brainstorm-to-plan transition, worktree lifecycle, config options
 
@@ -738,13 +754,14 @@ pi-plan/
   diagnostics.ts        # Diagnostic snapshot model, collection, log writing
   plangen.ts            # Template-aware plan generation
   archive.ts            # Archive lifecycle — archive, list, restore, index, reconciliation
-  auto-plan.ts          # Plan enforcement state machine (8 phases)
+  auto-plan.ts          # Plan enforcement state machine (9 phases)
   harness.ts            # Harness-level input interception
   mode-utils.ts         # Step extraction and [DONE:n] tracking
   tdd.ts                # TDD enforcement — write-gating, compliance logging
   brainstorm.ts         # Brainstorming phase — spec I/O, filename generation
   worktree.ts           # Git worktree isolation — creation, cleanup, state
-  hooks.ts              # Lifecycle hook handlers (tool_call, input, context, turn_end)
+  finish.ts             # Branch finishing workflow — merge, PR, keep, discard
+  hooks.ts              # Lifecycle hook handlers (tool_call, input, context, turn_end, agent_end, session_start)
   tools.ts              # Tool implementations (submit_plan, submit_spec)
   review.ts             # Review orchestration — browser review lifecycle
   server.ts             # Ephemeral HTTP servers for plan/code/annotate review
@@ -754,7 +771,7 @@ pi-plan/
     review-editor.html  # Pre-built code review UI
   package.json          # Pi package manifest
   vitest.config.ts      # Test config
-  tests/                # 533 tests across 22 files
+  tests/                # 571 tests across 24 files
   README.md
 ```
 
@@ -803,15 +820,21 @@ pi-plan/
 - **`worktree.ts`** — Git worktree isolation. Exports `createWorktreeForPlan()`,
   `cleanupWorktree()`, `writeWorktreeState()`, `readWorktreeState()`,
   `deriveWorktreeBranch()`. Manages `.worktrees/` directories and `.pi/worktrees/active.json`.
-- **`hooks.ts`** — Lifecycle hook handlers. Exports handlers for `tool_call` (TDD write-gating),
-  `input` (phase-based message transformation), `context` (plan state injection),
-  `turn_end` (step completion tracking), and `agent_end` (cleanup).
+- **`finish.ts`** — Deterministic branch finishing workflow. Pure functions with `ExecFn`
+  seam. `executeFinishing()` orchestrates the four-option menu (merge, PR, keep, discard).
+  `generatePrBody()` extracts title/goal/steps from plan content with template support.
+  `detectBaseBranch()` finds the remote HEAD. `isGhAvailable()` checks gh CLI.
+- **`hooks.ts`** — Lifecycle hook handlers. Exports handlers for `tool_call` (write-gating
+  for brainstorming, finishing, planning, TDD, worktree), `input` (phase-based message
+  transformation), `context` (plan state injection), `turn_end` (step completion tracking),
+  `agent_end` (plan completion and finishing workflow orchestration), and `session_start`
+  (state restoration with phase degradation).
 - **`tools.ts`** — Tool implementations. Exports `handleSubmitPlan()` and
   `handleSubmitSpec()`. Coordinates browser review lifecycle and brainstorm transitions.
 - **`index.ts`** — Thin entry point. Registers `/plan`, `/plan-debug`, `/todos`,
-  `/tdd`, `/plan-review`, and `/plan-annotate`. Registers `submit_plan` and
-  `submit_spec` tools. Bridges Pi's `ExtensionAPI` to the `PlanUI` interface
-  and delegates to `orchestration.ts`.
+  `/tdd`, `/plan-review`, `/plan-annotate`, and `/plan-finish`. Registers `submit_plan`
+  and `submit_spec` tools. Bridges Pi's `ExtensionAPI` to the `PlanUI` interface
+  and delegates to `orchestration.ts`, `hooks.ts`, `tools.ts`, and `finish.ts`.
 
 The separation means:
 - `/plan` and `/plan-debug` use the same state helpers (no drift)

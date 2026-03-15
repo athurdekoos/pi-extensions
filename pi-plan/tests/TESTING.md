@@ -200,7 +200,7 @@ Also tests template info (`template.usable`, `template.sectionCount`, `template.
 - Expected event hooks not wired (missing lifecycle hook, wrong event name)
 - New commands/tools/flags/hooks added without updating the smoke test (exact surface assertion)
 
-**How it works**: Calls the default export of `index.ts` with a minimal mock `ExtensionAPI` that records all `registerCommand`, `registerTool`, `registerFlag`, and `on` calls. Asserts the exact expected surface: 6 commands, 2 tools, 1 flag, 7 event hooks.
+**How it works**: Calls the default export of `index.ts` with a minimal mock `ExtensionAPI` that records all `registerCommand`, `registerTool`, `registerFlag`, and `on` calls. Asserts the exact expected surface: 7 commands, 2 tools, 1 flag, 7 event hooks.
 
 ### `tdd.test.ts`
 
@@ -247,7 +247,7 @@ Also tests template info (`template.usable`, `template.sectionCount`, `template.
 
 **Regressions caught**:
 - Phase computation returns wrong phase for given state
-- Any of the 8 phases not reachable or not correctly classified
+- Any of the 9 phases not reachable or not correctly classified
 - Context messages missing or wrong for a phase
 - Step extraction from current.md fails
 - Status display or widget lines incorrect for a phase
@@ -315,6 +315,41 @@ Also tests template info (`template.usable`, `template.sectionCount`, `template.
 - Code review endpoint fails for different diff modes
 - Annotation endpoint fails to load markdown content
 - Server cleanup doesn't release ports
+
+### `finish.test.ts`
+
+**Covers**: `finish.ts` — `detectBaseBranch()`, `isGhAvailable()`, `buildFinishOptions()`, `mapSelectionToAction()`, `mergeLocally()`, `generatePrBody()`, `createPullRequest()`, `keepBranch()`, `discardBranch()`, `executeFinishing()`.
+
+**Regressions caught**:
+- Base branch detection fails or doesn't fallback to "main"
+- `gh` CLI availability check returns wrong result
+- Finish menu options missing or in wrong order
+- PR option not hidden when `gh` unavailable
+- Menu label to action mapping broken
+- Merge fails to checkout base branch or abort on conflict
+- PR body generation misses title, goal, or steps
+- PR template substitution doesn't replace `{{BRANCH}}` or `{{PLAN_TITLE}}`
+- Push or `gh pr create` failure not reported
+- Keep branch accidentally deletes the branch
+- Discard accidentally keeps the branch
+- `executeFinishing` doesn't auto-archive before action
+- Default finish action config not respected
+- Cancel returns non-null result
+
+### `finishing-phase.test.ts`
+
+**Covers**: `auto-plan.ts` finishing phase display, `hooks.ts` finishing write-gate, serialization roundtrip.
+
+**Regressions caught**:
+- `getContextMessage("finishing")` returns wrong or null message
+- `getStatusDisplay("finishing")` shows wrong indicator
+- `getWidgetLines("finishing")` returns wrong widget content
+- Write tool not blocked during finishing phase
+- Edit tool not blocked during finishing phase
+- Read tool incorrectly blocked during finishing phase
+- Finishing state not serialized correctly
+- Finishing state not restored correctly
+- Finishing phase doesn't degrade to has-plan on session restore
 
 ## What Is NOT Automated
 

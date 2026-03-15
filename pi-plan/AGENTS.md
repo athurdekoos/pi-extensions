@@ -49,6 +49,10 @@ Opens a markdown file in the browser-based annotation UI. Feedback is sent back 
 
 Toggles TDD enforcement and shows a compliance summary. When active, gates file writes so test files must be written before production files within each step. Compliance is logged to `.pi/tdd/compliance-YYYY-MM-DD.json`.
 
+### `/plan-finish`
+
+Manually trigger the branch finishing workflow. Available whenever a worktree exists, regardless of current phase. Presents a menu: merge locally, create PR (if `gh` is available), keep branch, or discard. All actions auto-archive the plan first. Useful for recovery from interrupted sessions where the phase degraded on restore but the worktree is still present.
+
 ### `/plan-debug`
 
 Writes a JSON diagnostic snapshot to `.pi/logs/`. Never modifies planning files. Uses the same state-detection logic as `/plan` so diagnostics and planning stay aligned. Includes review state and asset availability.
@@ -92,7 +96,10 @@ All files live under the git repo root:
 
 | File | Owns | Does Not Own |
 |---|---|---|
-| `index.ts` | Command registration (`/plan`, `/plan-debug`, `/todos`, `/tdd`, `/plan-review`, `/plan-annotate`), `submit_plan` and `submit_spec` tools, `--plan` flag, Pi API bridge to `PlanUI`, lifecycle hook wiring (`input`, `tool_call`, `session_start`, `before_agent_start`, `context`, `turn_end`, `agent_end`), write-gating during planning/brainstorming/TDD/worktree, status line and widget updates | Business logic, state detection, enforcement decisions, file I/O, harness command evaluation |
+| `index.ts` | Command registration (`/plan`, `/plan-debug`, `/todos`, `/tdd`, `/plan-review`, `/plan-annotate`, `/plan-finish`), `submit_plan` and `submit_spec` tools, `--plan` flag, Pi API bridge to `PlanUI`, lifecycle hook wiring (`input`, `tool_call`, `session_start`, `before_agent_start`, `context`, `turn_end`, `agent_end`), write-gating during planning/brainstorming/finishing/TDD/worktree, status line and widget updates | Business logic, state detection, enforcement decisions, file I/O, harness command evaluation |
+| `hooks.ts` | Lifecycle hook handlers: `handleToolCallGate` (write-gating for brainstorming, finishing, planning, TDD, worktree), `handleInput` (input interception), `handleContextFilter` (stale message filtering), `handleBeforeAgentStart` (context injection), `handleTurnEnd` (step tracking), `handleAgentEnd` (plan completion + finishing workflow orchestration), `handleSessionStart` (state restoration). Type helpers: `isAssistantMessage`, `getTextContent`. Interfaces: `HookDeps`, `HookContext`, `ToolCallEvent`. | Hook registration (index.ts), state machine (auto-plan.ts), harness evaluation (harness.ts), config loading (config.ts), finishing logic (finish.ts) |
+| `tools.ts` | Tool execute handlers: `executeSubmitPlan` (submit_plan tool), `executeSubmitSpec` (submit_spec tool). Interfaces: `ToolDeps`, `ToolContext`, `ToolResult`. Helper: `tryTransitionToExecuting`. | Tool registration (index.ts), state machine (auto-plan.ts), review orchestration (review.ts), config loading (config.ts) |
+| `finish.ts` | Branch finishing workflow: `executeFinishing` orchestrator, `mergeLocally`, `createPullRequest`, `keepBranch`, `discardBranch`, `generatePrBody`, `detectBaseBranch`, `isGhAvailable`, menu building (`buildFinishOptions`, `mapSelectionToAction`). Pure functions with `ExecFn` seam. | Pi API calls, state machine, plan archival lifecycle, config loading, UI rendering |
 | `orchestration.ts` | Command handler logic, `PlanUI` interface, goal resolution, flow orchestration, index reconciliation calls, template repair/reset UX (`ensureTemplateUsable()`) | Command registration, state detection impl, file format |
 | `template-core.ts` | Shared template primitives: `TemplateSection` type, `TEMPLATE_PLACEHOLDERS`, `parseTemplate()`, `readTemplateSections()`, `buildCurrentStateValue()` — canonical CURRENT_STATE builder | Template mode classification, plan generation, diagnostics |
 | `template-analysis.ts` | Template mode classification, placeholder detection, usability assessment, repair recommendations — single source of truth for template interpretation | Template parsing (delegates to `template-core.ts`), plan generation logic, diagnostics collection |
@@ -147,6 +154,9 @@ These must hold across all changes:
 25. **Worktrees live outside `.pi/`.** Git worktree directories are created at `.worktrees/<slug>/` (repo root level), not inside `.pi/`. State metadata lives in `.pi/worktrees/active.json`.
 26. **Worktree state is persisted.** `writeWorktreeState()` / `readWorktreeState()` ensure worktree info survives session restarts.
 27. **`.worktrees/` is gitignored.** `addWorktreeDirToGitignore()` ensures `.worktrees/` is in `.gitignore` before creating worktrees.
+28. **Finishing is write-gated.** During the `"finishing"` phase, all file writes are blocked. The agent cannot interfere with the finishing workflow.
+29. **Finishing auto-archives.** `executeFinishing()` archives the plan before executing any branch action (merge, PR, keep, discard).
+30. **Finishing degrades gracefully.** If a session is interrupted during finishing, the phase degrades to `"has-plan"` on restore. The worktree remains intact and can be finished via `/plan-finish`.
 
 ## Extension Philosophy
 
@@ -184,6 +194,8 @@ When adding future capabilities, extend at these seams:
 | Brainstorm spec extensions | `brainstorm.ts` — add metadata fields, richer listing, spec linking |
 | Worktree setup customization | `worktree.ts` — extend `detectSetupCommands()` with new package managers or build tools |
 | Worktree branch strategy | `worktree.ts` — customize `deriveWorktreeBranch()` for different naming conventions |
+| Finishing action extensions | `finish.ts` — add new `FinishAction` values, extend `buildFinishOptions()` and `mapSelectionToAction()`, add new action functions |
+| PR body customization | `config.ts` — `prTemplate` supports `{{BRANCH}}` and `{{PLAN_TITLE}}`; users customize in `.pi/pi-plan.json`. `finish.ts` — extend `generatePrBody()` for additional placeholders |
 
 ### Why `index.ts` should stay thin
 
