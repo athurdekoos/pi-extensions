@@ -1,14 +1,14 @@
 {
   "name": "pi-plan",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "type": "module",
   "keywords": ["pi-package"],
   "dependencies": {
-    "@mariozechner/pi-coding-agent": "latest",
-    "@sinclair/typebox": "latest"
+    "@mariozechner/pi-coding-agent": "^0.57.1",
+    "@sinclair/typebox": "^0.34.48"
   },
   "devDependencies": {
-    "vitest": "latest"
+    "vitest": "^4.0.18"
   },
   "scripts": {
     "test": "vitest run"

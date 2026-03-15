@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.1.0 — TDD enforcement, brainstorming, worktree isolation
+
+### Added
+- **`/tdd` command** — toggle TDD enforcement and show compliance summary
+- **`submit_spec` tool** — submit design spec during brainstorming phase (params: `specPath` required, `summary` optional)
+- **`tdd.ts`** — TDD gate logic, test file detection via configurable globs, step completion validation, daily compliance logging
+- **`brainstorm.ts`** — brainstorming spec I/O with `YYYY-MM-DD-HHMM-slug.md` naming, spec listing/reading, `SPEC_TEMPLATE` support
+- **`worktree.ts`** — git worktree isolation with `plan/<slug>` branches, setup command detection, state persistence, gitignore management
+- **`brainstorming` phase** — new `AutoPlanPhase` state for design-first workflow
+- **`executing` phase** — new `AutoPlanPhase` state for active step tracking with TDD gating
+- **7 new config options** — `tddEnforcement` (bool), `testFilePatterns` (string[]), `brainstormEnabled` (bool), `worktreeEnabled` (bool), `specDir` (string), `tddLogDir` (string), `worktreeStateDir` (string)
+- **3 new `.pi/` subdirectories** — `specs/` (brainstorm specs), `tdd/` (compliance logs), `worktrees/` (state)
+- **`.worktrees/` directory** — gitignored repo-root directory for git worktree working copies
+- **`tdd.test.ts`** — TDD gate logic, glob-to-regex, test file detection, compliance logging
+- **`brainstorm.test.ts`** — spec I/O, filename generation, listing, immutability
+- **`worktree.test.ts`** — worktree creation/cleanup, state persistence, branch derivation, gitignore
+- **`auto-plan.test.ts`** — 8-phase state machine, phase computation, context messages, serialization
+- **`harness.test.ts`** — input evaluation for all phases, never-blocks invariant
+- **`phase4.test.ts`** — integration tests for TDD gating, brainstorm-to-plan transition, worktree lifecycle
+
+### Changed
+- `auto-plan.ts` — `AutoPlanPhase` expanded from 4 to 8 phases; `AutoPlanState` now includes `tddStepTestWritten`, `worktreeActive`, `worktreePath`, `brainstormSpecPath`
+- `config.ts` — added 7 new fields to `PiPlanConfig`
+- `index.ts` — registered `/tdd` command, `submit_spec` tool; write-gating extended for brainstorming, TDD, and worktree phases
+- `defaults.ts` — added `SPEC_TEMPLATE`
+- Test count: 452 → 533 across 19 → 22 files
+- Updated all documentation (README, AGENTS.md, architecture.md, file-contracts.md, CONTRIBUTING.md, RELEASE_CHECKLIST.md, TESTING.md)
+
 ## 2.0.1 — cleanup
 
 ### Changed

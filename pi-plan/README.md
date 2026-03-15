@@ -2,49 +2,93 @@
 
 Repo-local planning extension for [Pi Coding Agent](https://github.com/badlogic/pi-mono) with browser-based visual plan review, code review, and markdown annotation.
 
-## Status: v2.0.0
+## Status: v2.1.0
 
-v2.0.0 merges plannotator's browser-based review capabilities into pi-plan's deterministic filesystem model. All canonical state lives in `.pi/` — no home-directory state, no auto-approve.
+v2.1.0 adds TDD enforcement, brainstorming phase, and git worktree isolation on top of browser-based review capabilities. All canonical state lives in `.pi/` — no home-directory state, no auto-approve.
 
-## What it does
+## How pi-plan Works
 
-### Browser-based review (v2.0.0)
+pi-plan enforces a **plan-before-code discipline** via an 8-phase state machine that progressively gates what the AI agent can do. It is not just plan storage — it actively prevents implementation until a plan exists and is approved.
 
-#### `submit_plan` tool
+### The planning lifecycle
 
-The agent calls `submit_plan` after drafting a plan to `.pi/plans/current.md`. This opens a browser-based visual review UI where you can:
-- Approve the plan (optionally with implementation notes)
-- Deny with detailed feedback and annotations
-- See diffs against the previous archived plan
+When enforcement is enabled, pi-plan moves through these phases:
 
-No auto-approve: if the browser UI is unavailable, the tool returns an error.
-
-#### `/plan-review` — interactive code review
-
-Opens a browser-based code review UI for current git changes. Shows uncommitted, staged, last-commit, or branch diffs with annotation support. Feedback is sent back to the agent.
-
-#### `/plan-annotate <file.md>` — markdown annotation
-
-Opens any markdown file in a browser-based annotation UI. Feedback is sent back to the agent.
-
-#### `--plan` flag
-
-Start Pi with plan enforcement enabled:
-```bash
-pi -e ~/dev/pi-extensions/pi-plan --plan
+```
+inactive → not-initialized → needs-plan → brainstorming → has-plan → review-pending → executing
 ```
 
-#### Environment variable
+1. **`not-initialized`** — You're in a git repo but `.pi/` doesn't exist yet. `/plan` offers to create the planning structure.
+2. **`needs-plan`** — Planning is initialized but no plan exists. The agent receives context telling it to create a plan before coding.
+3. **`brainstorming`** (optional) — The agent writes design specs before committing to a plan. Submitting a spec via `submit_spec` transitions to planning.
+4. **`has-plan`** — A plan exists in `current.md`. The agent submits it for review via `submit_plan`.
+5. **`review-pending`** — The plan is open in the browser review UI. You approve or deny with feedback.
+6. **`executing`** — The plan is approved. The agent works through steps, marking each complete with `[DONE:n]`. TDD enforcement gates file writes if enabled.
 
-Set `PI_PLAN_BROWSER` to specify a custom browser for review UIs.
+Phase is **computed, not stored** — it's derived from the enforcement toggle and filesystem state (does `.pi/` exist? does `current.md` have a real plan?). This means phase is always consistent and never stale.
 
-#### Review records
+### What makes pi-plan special
 
-All review decisions are recorded as append-only JSON files under `.pi/plans/reviews/`. Each record includes timestamp, approved/denied status, feedback, and plan title.
+1. **Computed state, not stored state** — Phase is derived from filesystem + toggle. No stored state to drift or corrupt. Restarting a session picks up exactly where you left off.
+2. **Immutable history** — Archives are write-once. `index.md` is always fully regenerated (never patched). Manual file additions/removals are auto-corrected on next command.
+3. **No auto-approve** — Browser review is mandatory. If the browser UI is unavailable, `submit_plan` returns an error. Plans are never silently approved.
+4. **Graceful degradation** — Missing config uses defaults. Malformed JSON falls back with warnings. Missing templates use built-in fallback sections. Invalid config fields degrade per-field, not all-or-nothing. Nothing crashes.
+5. **Repo-local, no home-directory state** — Everything lives in `.pi/`. No global state, no background processes, no silent side effects.
 
-#### Step format support
+## Quick Start
 
-Plans support both numbered steps (`1. Step`) and checkbox steps (`- [ ] Step`). The extension auto-detects which format is used. Configurable via `stepFormat` in `.pi/pi-plan.json`.
+```bash
+# 1. Load the extension
+pi -e /path/to/pi-extensions/pi-plan
+
+# 2. Initialize planning (in any git repo)
+/plan  # → accept initialization
+
+# 3. Create a plan
+/plan Build a JWT auth layer  # → confirm to write
+
+# 4. Enable enforcement for plan-before-code discipline
+pi -e /path/to/pi-extensions/pi-plan --plan
+
+# 5. Work through steps — agent marks [DONE:n] as it goes
+/todos  # → see progress
+```
+
+See [docs/quickstart.md](docs/quickstart.md) for a complete walkthrough.
+
+## Installation
+
+### Quick test (no install)
+
+```bash
+pi -e ~/dev/pi-extensions/pi-plan
+```
+
+### Global install (persistent)
+
+```bash
+pi install /path/to/pi-extensions/pi-plan
+```
+
+Or add to `~/.pi/agent/settings.json`:
+
+```json
+{
+  "packages": [
+    "/home/YOU/dev/pi-extensions/pi-plan"
+  ]
+}
+```
+
+### Project-local install
+
+```bash
+pi install -l /path/to/pi-extensions/pi-plan
+```
+
+Once installed globally, all commands are available in every Pi session but only do meaningful work inside git repositories.
+
+## Commands
 
 ### `/plan` — planning state, initialization, plan creation, and lifecycle
 
@@ -58,9 +102,9 @@ Plans support both numbered steps (`1. Step`) and checkbox steps (`- [ ] Step`).
 | **Repo initialized, no current plan** | Asks for a task goal (or accepts inline args), generates a plan scaffold, confirms, writes to `current.md` |
 | **Repo initialized, current plan exists** | Presents an action menu: resume, replace, revisit archives, or cancel |
 
-#### Inline goal passthrough (Phase 4)
+#### Inline goal passthrough
 
-`/plan` now accepts goal text directly as arguments:
+`/plan` accepts goal text directly as arguments:
 
 ```
 /plan Build a repo-local planning extension
@@ -86,54 +130,9 @@ When planning is initialized but no meaningful current plan exists:
 4. If confirmed, the plan is saved to `.pi/plans/current.md`
 5. If cancelled, `current.md` remains unchanged
 
-#### Template-driven generation with explicit placeholders (Phase 5 + Phase 6)
-
-Generated plans derive their section structure from `.pi/templates/task-plan.md` and use explicit placeholder substitution:
-
-- **Placeholders**: Templates may use `{{GOAL}}`, `{{REPO_ROOT}}`, and `{{CURRENT_STATE}}` anywhere in section bodies. These are substituted with actual values during plan generation.
-- **Custom template**: If the template file exists and contains H2 sections, those sections define the generated plan structure.
-- **Section-name fallback**: For templates without placeholders, "Goal" and "Current State" sections still get special handling — Goal is filled with the user's goal, Current State includes the repo root path.
-- **Fallback**: If the template is missing, empty, or has no H2 sections, the built-in default sections (which use placeholders) are used.
-- **Unknown tokens**: `{{UNKNOWN}}` tokens are left as-is — no error, no removal.
-- **Safety**: Generated plans never contain the placeholder sentinel, even if the template does.
-
-This means customizing `.pi/templates/task-plan.md` meaningfully affects the plans `/plan` generates.
-
-##### Available template placeholders
-
-| Placeholder | Value |
-|---|---|
-| `{{GOAL}}` | The user's goal text |
-| `{{REPO_ROOT}}` | Absolute repo root path |
-| `{{CURRENT_STATE}}` | Current-state block (configurable via `currentStateTemplate` config) |
-
-##### Configurable `{{CURRENT_STATE}}` (Phase 7)
-
-The `{{CURRENT_STATE}}` expansion can be customized in `.pi/pi-plan.json`:
-
-```json
-{
-  "currentStateTemplate": "Project root: `{{REPO_ROOT}}`\n\nDescribe the current state of the codebase."
-}
-```
-
-The custom template may include `{{REPO_ROOT}}` which is substituted at generation time.
-If not set (or `null`), the default expansion includes the repo root path and a prompt to describe the starting point.
-
-##### Template repair/reset (Phase 7)
-
-When `/plan` detects a missing or unusable template before plan generation, it offers a concise confirmation to restore the default template:
-
-- **Missing or unusable template**: Confirm to restore default → writes `.pi/templates/task-plan.md` from built-in defaults
-- **Legacy template (no placeholders)**: Brief info notice — generation proceeds normally with section-name fallback
-- **Healthy template**: No notice
-
-Declining the repair still allows plan generation using built-in fallback sections. Cancel leaves files unchanged.
-
 #### Active plan flow
 
-When a meaningful current plan exists, `/plan` presents a short interactive
-action menu (similar to `pi-clear` and the `pi-google-adk` wizard):
+When a meaningful current plan exists, `/plan` presents a short interactive action menu:
 
 **Resume current plan**
 - Shows the plan title, path, and a concise summary from the Goal section
@@ -168,7 +167,56 @@ Cancellation always leaves files unchanged.
 - Respects config for log directory location
 - Config warnings are surfaced as notifications
 
-### Configuration (Phase 4)
+### `/todos` — step progress
+
+Show current plan step progress — numbered list with checkmark/circle completion markers.
+
+### `/tdd` — TDD enforcement toggle
+
+Toggles TDD enforcement on or off and shows a compliance summary. When TDD enforcement is active:
+- The extension gates file writes: test files must be written before production files within each implementation step
+- Compliance is logged to `.pi/tdd/compliance-YYYY-MM-DD.json` (append-only)
+- Step completion via `[DONE:n]` markers is validated against TDD compliance
+
+Configurable via `tddEnforcement` and `testFilePatterns` in `.pi/pi-plan.json`.
+
+### `/plan-review` — interactive code review
+
+Opens a browser-based code review UI for current git changes. Shows uncommitted, staged, last-commit, or branch diffs with annotation support. Feedback is sent back to the agent.
+
+### `/plan-annotate <file.md>` — markdown annotation
+
+Opens any markdown file in a browser-based annotation UI. Feedback is sent back to the agent.
+
+## Tools
+
+### `submit_plan`
+
+The agent calls `submit_plan` after drafting a plan to `.pi/plans/current.md`. This opens a browser-based visual review UI where you can:
+- Approve the plan (optionally with implementation notes)
+- Deny with detailed feedback and annotations
+- See diffs against the previous archived plan
+
+No auto-approve: if the browser UI is unavailable, the tool returns an error.
+
+### `submit_spec`
+
+The agent calls `submit_spec` during the brainstorming phase to submit a design spec for review. Parameters: `specPath` (required, path to the spec file) and `summary` (optional). Transitions the workflow from brainstorming to planning phase.
+
+## Flags
+
+### `--plan`
+
+Start Pi with plan enforcement enabled:
+```bash
+pi -e ~/dev/pi-extensions/pi-plan --plan
+```
+
+### Environment variable
+
+Set `PI_PLAN_BROWSER` to specify a custom browser for review UIs.
+
+## Configuration
 
 `pi-plan` supports a lightweight repo-local configuration file:
 
@@ -179,7 +227,7 @@ Cancellation always leaves files unchanged.
 All settings are optional. Missing or absent config uses sensible defaults.
 Invalid values fall back to defaults with warnings — never crashes.
 
-#### Config options
+### Config options
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -195,8 +243,15 @@ Invalid values fall back to defaults with warnings — never crashes.
 | `injectPlanContext` | boolean | `true` | Inject plan-state context messages into agent turns |
 | `reviewDir` | string | `".pi/plans/reviews"` | Relative path for review records |
 | `stepFormat` | `"numbered"` \| `"checkbox"` \| `"both"` | `"both"` | Step format for plan tracking |
+| `tddEnforcement` | boolean | `true` | Enable TDD write-gating (test before prod) |
+| `testFilePatterns` | string[] | `["*.test.*", "*.spec.*", "__tests__/**", "test/**", "tests/**"]` | Glob patterns for test file detection |
+| `brainstormEnabled` | boolean | `true` | Enable brainstorming phase before planning |
+| `worktreeEnabled` | boolean | `true` | Enable git worktree isolation for plans |
+| `specDir` | string | `".pi/specs"` | Relative path for brainstorm design specs |
+| `tddLogDir` | string | `".pi/tdd"` | Relative path for TDD compliance logs |
+| `worktreeStateDir` | string | `".pi/worktrees"` | Relative path for worktree state files |
 
-#### Example config
+### Example config
 
 ```json
 {
@@ -207,7 +262,7 @@ Invalid values fall back to defaults with warnings — never crashes.
 }
 ```
 
-#### Config behavior
+### Config behavior
 
 - Missing config file → all defaults, no warnings
 - Malformed JSON → all defaults, warning notification
@@ -215,12 +270,10 @@ Invalid values fall back to defaults with warnings — never crashes.
 - Unknown keys → silently ignored
 - Valid fields survive alongside invalid ones
 
-**Limitation:** This phase implements repo-local config only. Global defaults
-(e.g. `~/.pi/agent/settings.json`) are not yet supported. If Pi conventions
-make a global settings hook practical in a future phase, it can be added
-cleanly on top of this config layer.
+**Limitation:** This implements repo-local config only. Global defaults
+(e.g. `~/.pi/agent/settings.json`) are not yet supported.
 
-### Planning structure
+## Planning Structure
 
 When initialized, `/plan` creates:
 
@@ -236,10 +289,96 @@ When initialized, `/plan` creates:
       YYYY-MM-DD-HHMM-slug.md
     reviews/                 # Review records (append-only)
       review-TIMESTAMP.json
+  specs/                     # Brainstorm design specs (immutable after write)
+    YYYY-MM-DD-HHMM-slug.md
+  tdd/                       # TDD compliance logs (append-only)
+    compliance-YYYY-MM-DD.json
+  worktrees/                 # Worktree state
+    active.json
   pi-plan.json               # Optional config file
+.worktrees/                  # Git worktree directories (gitignored)
+  <slug>/
 ```
 
-### Archive strategy
+### Review records
+
+All review decisions are recorded as append-only JSON files under `.pi/plans/reviews/`. Each record includes timestamp, approved/denied status, feedback, and plan title.
+
+### Current plan detection
+
+`current.md` is considered to have a real plan when:
+- The file exists
+- It is not empty or whitespace-only
+- It does not contain the placeholder sentinel string
+
+This makes the "no plan yet" vs "plan exists" distinction deterministic.
+
+## State Model — `AutoPlanPhase`
+
+The enforcement state machine recognizes 8 phases:
+
+| Phase | Condition |
+|---|---|
+| `inactive` | Enforcement toggled OFF |
+| `no-repo` | Toggled ON but not in a git repo |
+| `not-initialized` | Toggled ON but `.pi/` doesn't exist |
+| `needs-plan` | Toggled ON, initialized, no current plan |
+| `brainstorming` | Design phase active (writing specs) |
+| `has-plan` | Toggled ON, current plan exists |
+| `review-pending` | Plan submitted for browser review |
+| `executing` | Actively tracking step completion |
+
+Phase transitions are pure functions of the toggle state and filesystem state. The `AutoPlanState` interface tracks: phase, repoRoot, todoItems, enforcementActive, tddStepTestWritten, worktreeActive, worktreePath, and brainstormSpecPath.
+
+### Step format support
+
+Plans support both numbered steps (`1. Step`) and checkbox steps (`- [ ] Step`). The extension auto-detects which format is used. Configurable via `stepFormat` in `.pi/pi-plan.json`.
+
+## Template System
+
+Generated plans derive their section structure from `.pi/templates/task-plan.md` and use explicit placeholder substitution.
+
+### Available placeholders
+
+| Placeholder | Value |
+|---|---|
+| `{{GOAL}}` | The user's goal text |
+| `{{REPO_ROOT}}` | Absolute repo root path |
+| `{{CURRENT_STATE}}` | Current-state block (configurable via `currentStateTemplate` config) |
+
+### Template modes
+
+- **Explicit placeholders**: Template uses `{{GOAL}}`, `{{REPO_ROOT}}`, `{{CURRENT_STATE}}`. These are substituted with actual values during plan generation.
+- **Section-name fallback**: For templates without placeholders, "Goal" and "Current State" sections still get special handling — Goal is filled with the user's goal, Current State includes the repo root path.
+- **Default fallback**: If the template is missing, empty, or has no H2 sections, the built-in default sections (which use placeholders) are used.
+- **Invalid**: Template file exists but has no H2 sections. Falls back to built-in sections.
+
+Unknown `{{TOKENS}}` are left as-is — no error, no removal. Generated plans never contain the placeholder sentinel.
+
+### Configurable `{{CURRENT_STATE}}`
+
+The `{{CURRENT_STATE}}` expansion can be customized in `.pi/pi-plan.json`:
+
+```json
+{
+  "currentStateTemplate": "Project root: `{{REPO_ROOT}}`\n\nDescribe the current state of the codebase."
+}
+```
+
+The custom template may include `{{REPO_ROOT}}` which is substituted at generation time.
+If not set (or `null`), the default expansion includes the repo root path and a prompt to describe the starting point.
+
+### Template repair/reset
+
+When `/plan` detects a missing or unusable template before plan generation, it offers a concise confirmation to restore the default template:
+
+- **Missing or unusable template**: Confirm to restore default → writes `.pi/templates/task-plan.md` from built-in defaults
+- **Legacy template (no placeholders)**: Brief info notice — generation proceeds normally with section-name fallback
+- **Healthy template**: No notice
+
+Declining the repair still allows plan generation using built-in fallback sections. Cancel leaves files unchanged.
+
+## Archive Strategy
 
 - Archives live in the configured archive directory (default `.pi/plans/archive/`)
 - Filenames are deterministic and sortable
@@ -250,7 +389,7 @@ When initialized, `/plan` creates:
 - Archives are immutable once written
 - The archive directory is created on first archive, not during init
 
-### Archive browsing polish (Phase 4)
+### Archive browsing
 
 - Labels show both title and human-readable timestamp: `Auth Module  (2026-03-11 17:30)`
 - Long titles are truncated cleanly with ellipsis
@@ -270,22 +409,41 @@ It lists the current plan title with a link and all archived plans
 (newest first) with links and filenames. The index always includes all
 archives, not capped by `maxArchiveListEntries`.
 
-#### Reconciliation (Phase 5)
-
-`index.md` is now opportunistically reconciled at the start of `/plan` and
+`index.md` is opportunistically reconciled at the start of `/plan` and
 `/plan-debug` flows. This means if files are manually added, removed, or
 edited outside the extension, the index will be corrected on the next command
 invocation. Reconciliation is safe, deterministic, and idempotent — it only
 writes `index.md` and never modifies current.md or archives.
 
-### Current plan detection
+## TDD Enforcement
 
-`current.md` is considered to have a real plan when:
-- The file exists
-- It is not empty or whitespace-only
-- It does not contain the placeholder sentinel string
+When `tddEnforcement` is enabled (default: `true`), the extension gates file writes during plan execution:
 
-This makes the "no plan yet" vs "plan exists" distinction deterministic.
+- **Test-first requirement**: Within each implementation step, test files must be written before production files
+- **Test file detection**: Uses configurable glob patterns (`testFilePatterns`) to identify test files
+- **Compliance logging**: Each step's TDD compliance is logged to `.pi/tdd/compliance-YYYY-MM-DD.json` (append-only JSON arrays)
+- **Step validation**: `[DONE:n]` markers are validated — a step cannot be marked complete unless TDD compliance was met
+- **`.pi/` files are always allowed**: Writes to planning infrastructure are never gated
+
+## Brainstorming Phase
+
+When `brainstormEnabled` is enabled (default: `true`), the workflow includes a design phase before planning:
+
+- **Spec creation**: The agent writes design specs to `.pi/specs/` using `YYYY-MM-DD-HHMM-slug.md` format
+- **Spec template**: Specs follow a built-in template with sections for Problem Statement, Context, Constraints, Proposed Approach, Alternatives Considered, Open Questions, and Success Criteria
+- **`submit_spec` tool**: Submits a spec for review, transitioning from brainstorming to planning phase
+- **Spec listing**: `listSpecs()` returns specs sorted newest-first with titles and dates
+- **Immutability**: Specs are immutable after write
+
+## Git Worktree Isolation
+
+When `worktreeEnabled` is enabled (default: `true`), each plan executes in an isolated git worktree:
+
+- **Automatic creation**: `createWorktreeForPlan()` creates a worktree at `.worktrees/<slug>/` with branch `plan/<slug>`
+- **State persistence**: Active worktree info is stored in `.pi/worktrees/active.json`
+- **Setup detection**: Auto-detects and runs setup commands (npm install, yarn install, pip install, etc.)
+- **Cleanup**: `cleanupWorktree()` removes the worktree and cleans up state on plan completion
+- **Gitignore**: `.worktrees/` is automatically added to `.gitignore`
 
 ## What it does NOT do yet
 
@@ -298,38 +456,72 @@ This makes the "no plan yet" vs "plan exists" distinction deterministic.
 - No advanced archive search/filtering
 - No multiple simultaneous current plans
 
-## Installation
-
-### Quick test (no install)
+## Running tests
 
 ```bash
-pi -e ~/dev/pi-extensions/pi-plan
+cd pi-plan && npm test
 ```
 
-### Global install (persistent)
+Tests cover (533 tests across 22 files):
+- **Config handling** — defaults when missing, valid overrides, invalid fallback with warnings,
+  resolved paths, per-field validation, mixed valid/invalid fields, unknown keys
+- **Summary extraction** — Goal section lines, maxLines, placeholder skipping, fallback behavior
+- **Archive timestamps** — human-readable formatting, null for non-matching filenames
+- **Archive labels** — title + timestamp combination, truncation, fallback
+- **Path constants** — relative paths for all planning files
+- **`hasPlanningProtocol`** — protocol file detection
+- **`isFullyInitialized`** — all-four-files check
+- **`hasCurrentPlan`** — placeholder vs real plan detection
+- **`initPlanning`** — file creation, skip-existing, directory creation, idempotency
+- **`detectRepoRootWith`** — success, failure, whitespace trimming, empty stdout, arg passing
+- **`detectPlanStateWith`** — all five state scenarios via mock ExecFn
+- **`formatTimestamp`** — deterministic sortable timestamps
+- **`logFilename` / `logRelPath`** — filename pattern and path structure
+- **`collectDiagnostics`** — all four states, field presence, archive info, title, config awareness
+- **`writeDiagnosticLog`** — directory creation, valid JSON, no-overwrite
+- **Snapshot safety** — no file body content in diagnostics (title is metadata)
+- **`parseTemplate`** — section extraction, body capture, malformed input, H1 skipping
+- **`readTemplateSections`** — missing file, empty file, no-H2 file, valid file
+- **`deriveTitle`** — title extraction, truncation, edge cases
+- **`generatePlan` (fallback)** — goal inclusion, section completeness, determinism, no sentinel
+- **`generatePlan` (template-aware)** — custom sections, body preservation, Goal/CurrentState handling, malformed fallback, sentinel safety, determinism
+- **Placeholder substitution** — `{{GOAL}}`, `{{REPO_ROOT}}`, `{{CURRENT_STATE}}` substitution, multi-placeholder lines, unknown token preservation, section-name fallback, no double-injection, fallback on missing/malformed templates
+- **`generatePlanWithMeta`** — template usage metadata reporting
+- **`TEMPLATE_PLACEHOLDERS`** — constant correctness
+- **`hasAllSections` / `extractSectionHeadings`** — section validation
+- **`writeCurrentPlan`** — placeholder replacement, refusal on meaningful plan
+- **`extractPlanTitle`** — from H1, from `# Plan:`, from Goal section, fallback
+- **`slugify`** — normalization, special chars, length cap, empty input
+- **`archiveFilename`** — format, padding, sortability, determinism, date-only style
+- **`readCurrentPlan` / `forceWriteCurrentPlan`** — read/write, unconditional write
+- **`archivePlan`** — directory creation, content preservation, collision handling, config-aware
+- **`listArchives`** — empty states, sort order, label extraction, non-md filtering, maxArchiveListEntries
+- **`countArchives`** — total count independent of list cap
+- **`readArchive`** — content reading, nonexistent file
+- **Replace flow** — archive old + write new, cancellation leaves unchanged
+- **Restore flow** — archive current + restore archive, cancellation leaves unchanged
+- **`updateIndex`** — current title, archive listing, determinism, after replace
+- **`reconcileIndex`** — skip when not initialized, regenerate stale/missing index, manual add/remove correction, idempotency, no corruption, custom archive dir
+- **`handlePlan`** — no-repo error, init offer/cancel, create/cancel/confirm, inline args, has-plan cancel/resume, replace success/cancel/inline-args, restore success/cancel, no-archives path
+- **`handlePlanDebug`** — no-repo error, log writing, not-initialized state
+- **Template diagnostics** — template.usable and template.sectionCount across states, fallback notes
+- **`resolveGoal`** — inline args, interactive prompt, disabled inline, empty/null input
+- **Template primitives** — `parseTemplate`, `readTemplateSections`, `TEMPLATE_PLACEHOLDERS`, `buildCurrentStateValue` from `template-core.ts`
+- **CURRENT_STATE consistency** — config override affects all generation paths (placeholder, section-name fallback, built-in fallback), consistent output across paths
+- **State integration** — hasCurrentPlan works with archives, archive dir doesn't break state
+- **TDD enforcement** — `globToRegex`, `isTestFile`, `evaluateTddGate`, `validateStepCompletion`, `logTddCompliance`, test-first gating, `.pi/` file allowlisting
+- **Brainstorming** — `generateSpecFilename`, `writeSpec`, `readSpec`, `listSpecs`, spec immutability, filename format, newest-first ordering
+- **Worktree isolation** — `deriveWorktreeBranch`, `isWorktreeDirIgnored`, `addWorktreeDirToGitignore`, `detectSetupCommands`, `writeWorktreeState`, `readWorktreeState`, `createWorktreeForPlan`, `cleanupWorktree`, state persistence
+- **Auto-plan state machine** — `computePhase` for all 8 phases, `getContextMessage`, `extractStepsFromCurrentPlan`, `getStatusDisplay`, `getWidgetLines`, `serializeState`, `restoreState`, TDD and worktree state fields
+- **Harness interception** — `evaluateInput` for all phases, context injection, never-blocks invariant
+- **Integration** — TDD gating during execution, brainstorm-to-plan transition, worktree lifecycle, config options
 
-```bash
-pi install /path/to/pi-extensions/pi-plan
-```
+Tests do **not** cover:
+- `detectRepoRoot` / `detectPlanState` via real Pi runtime (tested via `ExecFn` seam)
+- Full Pi command registration wiring (thin bridge in `index.ts`)
+- Config file permission errors
 
-Or add to `~/.pi/agent/settings.json`:
-
-```json
-{
-  "packages": [
-    "/home/YOU/dev/pi-extensions/pi-plan"
-  ]
-}
-```
-
-### Project-local install
-
-```bash
-pi install -l /path/to/pi-extensions/pi-plan
-```
-
-Once installed globally, `/plan` and `/plan-debug` are available in every Pi
-session but only do meaningful work inside git repositories.
+These are covered by the manual verification path below.
 
 ## Manual verification
 
@@ -434,7 +626,7 @@ echo 'not json' > .pi/pi-plan.json
 # Type: /plan → Replace → enter goal → Cancel → "Cancelled."
 ```
 
-### 13. Verify template placeholder substitution (Phase 6)
+### 13. Verify template placeholder substitution
 
 ```bash
 # Edit the template to use explicit placeholders:
@@ -468,7 +660,7 @@ EOF
 #   - No fallback sections like Non-Goals, Acceptance Criteria, etc.
 ```
 
-### 13b. Verify legacy template fallback (Phase 6)
+### 13b. Verify legacy template fallback
 
 ```bash
 # Edit the template WITHOUT placeholders:
@@ -488,7 +680,7 @@ EOF
 # Accept → verify Goal section contains "Build something" (section-name fallback)
 ```
 
-### 14. Verify index reconciliation (Phase 5)
+### 14. Verify index reconciliation
 
 ```bash
 # Manually add an archive file:
@@ -497,66 +689,39 @@ echo "# Plan: Manual\n\n## Goal\n\nManually added." > .pi/plans/archive/2026-01-
 # Verify: index.md now includes the manually added archive
 ```
 
-## Running tests
+### 15. Verify TDD gating
 
-```bash
-cd pi-plan && npm test
+```
+# With enforcement ON and a plan in executing phase:
+# Try to write a production file before a test file
+# Expected: write blocked with TDD gate message
+# Write a test file first, then the production file
+# Expected: both writes succeed
+# Type: /tdd
+# Expected: TDD compliance summary
 ```
 
-Tests cover (452 tests across 19 files):
-- **Config handling** — defaults when missing, valid overrides, invalid fallback with warnings,
-  resolved paths, per-field validation, mixed valid/invalid fields, unknown keys
-- **Summary extraction** — Goal section lines, maxLines, placeholder skipping, fallback behavior
-- **Archive timestamps** — human-readable formatting, null for non-matching filenames
-- **Archive labels** — title + timestamp combination, truncation, fallback
-- **Path constants** — relative paths for all planning files
-- **`hasPlanningProtocol`** — protocol file detection
-- **`isFullyInitialized`** — all-four-files check
-- **`hasCurrentPlan`** — placeholder vs real plan detection
-- **`initPlanning`** — file creation, skip-existing, directory creation, idempotency
-- **`detectRepoRootWith`** — success, failure, whitespace trimming, empty stdout, arg passing (Phase 5)
-- **`detectPlanStateWith`** — all five state scenarios via mock ExecFn (Phase 5)
-- **`formatTimestamp`** — deterministic sortable timestamps
-- **`logFilename` / `logRelPath`** — filename pattern and path structure
-- **`collectDiagnostics`** — all four states, field presence, archive info, title, config awareness
-- **`writeDiagnosticLog`** — directory creation, valid JSON, no-overwrite
-- **Snapshot safety** — no file body content in diagnostics (title is metadata)
-- **`parseTemplate`** — section extraction, body capture, malformed input, H1 skipping (Phase 5)
-- **`readTemplateSections`** — missing file, empty file, no-H2 file, valid file (Phase 5)
-- **`deriveTitle`** — title extraction, truncation, edge cases
-- **`generatePlan` (fallback)** — goal inclusion, section completeness, determinism, no sentinel
-- **`generatePlan` (template-aware)** — custom sections, body preservation, Goal/CurrentState handling, malformed fallback, sentinel safety, determinism (Phase 5)
-- **Placeholder substitution** — `{{GOAL}}`, `{{REPO_ROOT}}`, `{{CURRENT_STATE}}` substitution, multi-placeholder lines, unknown token preservation, section-name fallback, no double-injection, fallback on missing/malformed templates (Phase 6)
-- **`generatePlanWithMeta`** — template usage metadata reporting (Phase 6)
-- **`TEMPLATE_PLACEHOLDERS`** — constant correctness (Phase 6)
-- **`hasAllSections` / `extractSectionHeadings`** — section validation
-- **`writeCurrentPlan`** — placeholder replacement, refusal on meaningful plan
-- **`extractPlanTitle`** — from H1, from `# Plan:`, from Goal section, fallback
-- **`slugify`** — normalization, special chars, length cap, empty input
-- **`archiveFilename`** — format, padding, sortability, determinism, date-only style
-- **`readCurrentPlan` / `forceWriteCurrentPlan`** — read/write, unconditional write
-- **`archivePlan`** — directory creation, content preservation, collision handling, config-aware
-- **`listArchives`** — empty states, sort order, label extraction, non-md filtering, maxArchiveListEntries
-- **`countArchives`** — total count independent of list cap
-- **`readArchive`** — content reading, nonexistent file
-- **Replace flow** — archive old + write new, cancellation leaves unchanged
-- **Restore flow** — archive current + restore archive, cancellation leaves unchanged
-- **`updateIndex`** — current title, archive listing, determinism, after replace
-- **`reconcileIndex`** — skip when not initialized, regenerate stale/missing index, manual add/remove correction, idempotency, no corruption, custom archive dir (Phase 5)
-- **`handlePlan`** — no-repo error, init offer/cancel, create/cancel/confirm, inline args, has-plan cancel/resume, replace success/cancel/inline-args, restore success/cancel, no-archives path (Phase 5 + Phase 6)
-- **`handlePlanDebug`** — no-repo error, log writing, not-initialized state (Phase 5)
-- **Template diagnostics** — template.usable and template.sectionCount across states, fallback notes (Phase 6)
-- **`resolveGoal`** — inline args, interactive prompt, disabled inline, empty/null input (Phase 5)
-- **Template primitives** — `parseTemplate`, `readTemplateSections`, `TEMPLATE_PLACEHOLDERS`, `buildCurrentStateValue` from `template-core.ts` (Phase 8)
-- **CURRENT_STATE consistency** — config override affects all generation paths (placeholder, section-name fallback, built-in fallback), consistent output across paths (Phase 8)
-- **State integration** — hasCurrentPlan works with archives, archive dir doesn't break state
+### 16. Verify brainstorming flow
 
-Tests do **not** cover:
-- `detectRepoRoot` / `detectPlanState` via real Pi runtime (tested via `ExecFn` seam)
-- Full Pi command registration wiring (thin bridge in `index.ts`)
-- Config file permission errors
+```
+# With brainstormEnabled: true and enforcement ON:
+# Start a new plan flow
+# Expected: brainstorming phase activates
+# Agent writes a spec to .pi/specs/
+# Agent calls submit_spec with the spec path
+# Expected: transitions to planning phase
+```
 
-These are covered by the manual verification path above.
+### 17. Verify worktree lifecycle
+
+```
+# With worktreeEnabled: true and enforcement ON:
+# Create a new plan
+# Expected: worktree created at .worktrees/<slug>/, .worktrees/ added to .gitignore
+# Verify: .pi/worktrees/active.json contains worktree info
+# Complete/archive the plan
+# Expected: worktree cleaned up, active.json removed
+```
 
 ## File structure
 
@@ -573,9 +738,14 @@ pi-plan/
   diagnostics.ts        # Diagnostic snapshot model, collection, log writing
   plangen.ts            # Template-aware plan generation
   archive.ts            # Archive lifecycle — archive, list, restore, index, reconciliation
-  auto-plan.ts          # Plan enforcement state machine
+  auto-plan.ts          # Plan enforcement state machine (8 phases)
   harness.ts            # Harness-level input interception
   mode-utils.ts         # Step extraction and [DONE:n] tracking
+  tdd.ts                # TDD enforcement — write-gating, compliance logging
+  brainstorm.ts         # Brainstorming phase — spec I/O, filename generation
+  worktree.ts           # Git worktree isolation — creation, cleanup, state
+  hooks.ts              # Lifecycle hook handlers (tool_call, input, context, turn_end)
+  tools.ts              # Tool implementations (submit_plan, submit_spec)
   review.ts             # Review orchestration — browser review lifecycle
   server.ts             # Ephemeral HTTP servers for plan/code/annotate review
   browser.ts            # System browser launcher
@@ -584,7 +754,7 @@ pi-plan/
     review-editor.html  # Pre-built code review UI
   package.json          # Pi package manifest
   vitest.config.ts      # Test config
-  tests/                # 452 tests across 19 files
+  tests/                # 533 tests across 22 files
   README.md
 ```
 
@@ -594,10 +764,10 @@ pi-plan/
   sentinel string used for placeholder detection.
 - **`config.ts`** — Lightweight config loader/normalizer. Reads `.pi/pi-plan.json`,
   validates each field, falls back to sensible defaults. Returns config + warnings +
-  source. Pure helper, no Pi UI dependencies. (Phase 4)
+  source. Pure helper, no Pi UI dependencies.
 - **`summary.ts`** — Plan summary extraction for resume and archive polish.
   Exports `extractPlanSummary()`, `formatArchiveTimestamp()`, `formatArchiveLabel()`.
-  Pure helpers, no filesystem dependencies. (Phase 4)
+  Pure helpers, no filesystem dependencies.
 - **`orchestration.ts`** — Command handler logic extracted from `index.ts`. Defines
   the `PlanUI` interface for testability. Exports `handlePlan()`, `handlePlanDebug()`,
   `resolveGoal()`. Calls `reconcileIndex()` before key flows.
@@ -625,9 +795,23 @@ pi-plan/
   `archivePlan()`, `listArchives()`, `countArchives()`, `readArchive()`,
   `updateIndex()`, `reconcileIndex()`. Config-aware: respects custom archive dir,
   filename style, and list limits. All pure filesystem operations, no Pi UI dependencies.
-- **`index.ts`** — Thin entry point. Registers `/plan` and `/plan-debug`.
-  Bridges Pi's `ExtensionAPI` to the `PlanUI` interface and delegates to
-  `orchestration.ts`.
+- **`tdd.ts`** — TDD enforcement gate logic. Exports `evaluateTddGate()`,
+  `isTestFile()`, `validateStepCompletion()`, `logTddCompliance()`. Pure
+  helper, no Pi UI dependencies.
+- **`brainstorm.ts`** — Brainstorming spec I/O. Exports `generateSpecFilename()`,
+  `writeSpec()`, `readSpec()`, `listSpecs()`. Pure filesystem operations.
+- **`worktree.ts`** — Git worktree isolation. Exports `createWorktreeForPlan()`,
+  `cleanupWorktree()`, `writeWorktreeState()`, `readWorktreeState()`,
+  `deriveWorktreeBranch()`. Manages `.worktrees/` directories and `.pi/worktrees/active.json`.
+- **`hooks.ts`** — Lifecycle hook handlers. Exports handlers for `tool_call` (TDD write-gating),
+  `input` (phase-based message transformation), `context` (plan state injection),
+  `turn_end` (step completion tracking), and `agent_end` (cleanup).
+- **`tools.ts`** — Tool implementations. Exports `handleSubmitPlan()` and
+  `handleSubmitSpec()`. Coordinates browser review lifecycle and brainstorm transitions.
+- **`index.ts`** — Thin entry point. Registers `/plan`, `/plan-debug`, `/todos`,
+  `/tdd`, `/plan-review`, and `/plan-annotate`. Registers `submit_plan` and
+  `submit_spec` tools. Bridges Pi's `ExtensionAPI` to the `PlanUI` interface
+  and delegates to `orchestration.ts`.
 
 The separation means:
 - `/plan` and `/plan-debug` use the same state helpers (no drift)
@@ -640,21 +824,25 @@ The separation means:
 - Later phases can extend with enforcement, richer flows, or global config
   without changing the core state model or archive infrastructure
 
-## Internal Documentation
+## Documentation
 
-For maintainers and contributors, see:
-
-- [`AGENTS.md`](AGENTS.md) — maintainer overview, module ownership, invariants, extension points
-- [`docs/architecture.md`](docs/architecture.md) — architecture, state model, command flows
-- [`docs/file-contracts.md`](docs/file-contracts.md) — repo-local file semantics and contracts
-- [`tests/TESTING.md`](tests/TESTING.md) — test coverage strategy
+| Document | Purpose |
+|---|---|
+| [`docs/quickstart.md`](docs/quickstart.md) | Getting started tutorial |
+| [`docs/workflows.md`](docs/workflows.md) | Common workflow patterns |
+| [`docs/architecture.md`](docs/architecture.md) | Architecture, state model, command flows |
+| [`docs/file-contracts.md`](docs/file-contracts.md) | Repo-local file semantics and contracts |
+| [`AGENTS.md`](AGENTS.md) | Maintainer overview, module ownership, invariants |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contributor guide |
+| [`CHANGELOG.md`](CHANGELOG.md) | Version history |
+| [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) | Pre-release verification |
+| [`tests/TESTING.md`](tests/TESTING.md) | Test coverage strategy |
 
 ## Future work
 
 - Plan linting and validation
 - Richer revision flows
 - Global config defaults
-- Write-gating during all enforcement phases
 - Ctrl+Alt+P keyboard shortcut
 
 ## Dependencies

@@ -45,6 +45,10 @@ Opens interactive code review for current git changes in a browser UI. Supports 
 
 Opens a markdown file in the browser-based annotation UI. Feedback is sent back to the agent.
 
+### `/tdd`
+
+Toggles TDD enforcement and shows a compliance summary. When active, gates file writes so test files must be written before production files within each step. Compliance is logged to `.pi/tdd/compliance-YYYY-MM-DD.json`.
+
 ### `/plan-debug`
 
 Writes a JSON diagnostic snapshot to `.pi/logs/`. Never modifies planning files. Uses the same state-detection logic as `/plan` so diagnostics and planning stay aligned. Includes review state and asset availability.
@@ -54,6 +58,10 @@ Writes a JSON diagnostic snapshot to `.pi/logs/`. Never modifies planning files.
 ### `submit_plan`
 
 Agent-callable tool to submit the current plan for browser-based visual review. The user reviews in the browser and can approve (optionally with notes) or deny with feedback. Review records are written to `.pi/plans/reviews/`. No auto-approve — if the browser UI is unavailable, returns an error.
+
+### `submit_spec`
+
+Agent-callable tool to submit a design spec during the brainstorming phase. Parameters: `specPath` (required) and `summary` (optional). Transitions from brainstorming to planning phase.
 
 ## Flags
 
@@ -74,13 +82,17 @@ All files live under the git repo root:
 | `.pi/plans/archive/*.md` | extension | ✗ (immutable) | Archived past plans |
 | `.pi/plans/reviews/*.json` | extension | ✗ (append-only) | Review decision records |
 | `.pi/logs/plan-debug-*.json` | extension | ✗ | Diagnostic snapshots |
+| `.pi/specs/*.md` | extension | ✗ (immutable) | Brainstorm design specs |
+| `.pi/tdd/compliance-*.json` | extension | ✗ (append-only) | TDD compliance logs |
+| `.pi/worktrees/active.json` | extension | ✗ | Active worktree state |
+| `.worktrees/<slug>/` | git | ✗ (managed by git) | Git worktree directories (gitignored) |
 | `.pi/pi-plan.json` | user | ✓ | Optional repo-local config |
 
 ## Module Ownership
 
 | File | Owns | Does Not Own |
 |---|---|---|
-| `index.ts` | Command registration (`/plan`, `/plan-debug`, `/todos`, `/plan-review`, `/plan-annotate`), `submit_plan` tool, `--plan` flag, Pi API bridge to `PlanUI`, lifecycle hook wiring (`input`, `tool_call`, `session_start`, `before_agent_start`, `context`, `turn_end`, `agent_end`), write-gating during planning, status line and widget updates | Business logic, state detection, enforcement decisions, file I/O, harness command evaluation |
+| `index.ts` | Command registration (`/plan`, `/plan-debug`, `/todos`, `/tdd`, `/plan-review`, `/plan-annotate`), `submit_plan` and `submit_spec` tools, `--plan` flag, Pi API bridge to `PlanUI`, lifecycle hook wiring (`input`, `tool_call`, `session_start`, `before_agent_start`, `context`, `turn_end`, `agent_end`), write-gating during planning/brainstorming/TDD/worktree, status line and widget updates | Business logic, state detection, enforcement decisions, file I/O, harness command evaluation |
 | `orchestration.ts` | Command handler logic, `PlanUI` interface, goal resolution, flow orchestration, index reconciliation calls, template repair/reset UX (`ensureTemplateUsable()`) | Command registration, state detection impl, file format |
 | `template-core.ts` | Shared template primitives: `TemplateSection` type, `TEMPLATE_PLACEHOLDERS`, `parseTemplate()`, `readTemplateSections()`, `buildCurrentStateValue()` — canonical CURRENT_STATE builder | Template mode classification, plan generation, diagnostics |
 | `template-analysis.ts` | Template mode classification, placeholder detection, usability assessment, repair recommendations — single source of truth for template interpretation | Template parsing (delegates to `template-core.ts`), plan generation logic, diagnostics collection |
@@ -96,6 +108,9 @@ All files live under the git repo root:
 | `summary.ts` | Plan summary extraction, archive label formatting | File I/O, state detection |
 | `server.ts` | Ephemeral HTTP servers for browser-based plan review, code review, and markdown annotation. No home-directory state. No version history. Previous plan for diff is passed in explicitly from the archive layer. | Browser launching (browser.ts), plan file I/O, state detection, Pi API calls, persistent state |
 | `browser.ts` | System browser launcher (`openBrowser`). Honors `PI_PLAN_BROWSER` and `BROWSER` env vars. Pure helper, no Pi dependencies. | Server lifecycle, plan logic, state detection |
+| `tdd.ts` | TDD gate logic (`evaluateTddGate`), test file detection (`isTestFile`, `globToRegex`), step completion validation (`validateStepCompletion`), compliance logging (`logTddCompliance`). Pure helper, no Pi UI dependencies. | Pi API calls, state transitions, plan generation, config loading |
+| `brainstorm.ts` | Spec I/O (`writeSpec`, `readSpec`, `listSpecs`), filename generation (`generateSpecFilename`). Pure filesystem operations. | Pi API calls, state detection, plan generation, config loading |
+| `worktree.ts` | Worktree creation (`createWorktreeForPlan`), cleanup (`cleanupWorktree`), state persistence (`writeWorktreeState`, `readWorktreeState`), branch derivation (`deriveWorktreeBranch`), gitignore management (`addWorktreeDirToGitignore`), setup detection (`detectSetupCommands`). | Pi API calls, state detection, plan generation, config loading |
 | `review.ts` | Review orchestration — coordinates browser review lifecycle: reading plan content, finding previous archive for diff, starting servers, opening browser, waiting for decisions, writing review records. (Skeleton — Phase 3 implementation.) | Server implementation (server.ts), browser launching (browser.ts), plan file I/O, state machine transitions, Pi API calls |
 | `assets/plan-review.html` | Pre-built single-file HTML for plan review and annotation browser UI. Committed artifact, not generated at install time. | N/A (static asset) |
 | `assets/review-editor.html` | Pre-built single-file HTML for code review browser UI. Committed artifact, not generated at install time. | N/A (static asset) |
@@ -126,6 +141,12 @@ These must hold across all changes:
 19. **Harness command registry is the extension point for future commands.** New harness-level commands are added to `harness.ts` without touching `index.ts` or `auto-plan.ts`.
 20. **No home-directory state.** The extension never writes to any home-directory path. All canonical state lives in repo-local files under `.pi/`. Browser review servers are ephemeral and stateless.
 21. **No auto-approve.** When browser UI is unavailable (non-interactive mode, missing HTML assets), review submission returns an error to the agent. It never silently approves.
+22. **TDD gate is pure.** `evaluateTddGate()` in `tdd.ts` is a pure function of the target path, test-written state, patterns, and repo root. No side effects.
+23. **TDD compliance logs are append-only.** `logTddCompliance()` appends to daily JSON files in `.pi/tdd/`. Existing entries are never modified or deleted.
+24. **Specs are immutable.** Once written by `writeSpec()`, brainstorm spec files in `.pi/specs/` are never modified by the extension.
+25. **Worktrees live outside `.pi/`.** Git worktree directories are created at `.worktrees/<slug>/` (repo root level), not inside `.pi/`. State metadata lives in `.pi/worktrees/active.json`.
+26. **Worktree state is persisted.** `writeWorktreeState()` / `readWorktreeState()` ensure worktree info survives session restarts.
+27. **`.worktrees/` is gitignored.** `addWorktreeDirToGitignore()` ensures `.worktrees/` is in `.gitignore` before creating worktrees.
 
 ## Extension Philosophy
 
@@ -158,6 +179,11 @@ When adding future capabilities, extend at these seams:
 | Browser review UI customization | Replace HTML assets in `assets/` with custom builds from the plannotator monorepo or a fork |
 | Review record extensions | `review.ts` — add new record fields, richer feedback schemas, review history queries |
 | New review server routes | `server.ts` — add API routes for additional browser UI features |
+| TDD pattern extensions | `tdd.ts` — add new gate decisions to `TddGateDecision`, extend `evaluateTddGate()` with new file categories |
+| Custom test file patterns | `config.ts` — `testFilePatterns` already accepts arbitrary globs; users customize in `.pi/pi-plan.json` |
+| Brainstorm spec extensions | `brainstorm.ts` — add metadata fields, richer listing, spec linking |
+| Worktree setup customization | `worktree.ts` — extend `detectSetupCommands()` with new package managers or build tools |
+| Worktree branch strategy | `worktree.ts` — customize `deriveWorktreeBranch()` for different naming conventions |
 
 ### Why `index.ts` should stay thin
 
@@ -176,6 +202,8 @@ See `tests/TESTING.md` for coverage strategy and what each test file proves.
 | Document | Purpose |
 |---|---|
 | `AGENTS.md` | This file — maintainer overview |
+| `docs/quickstart.md` | Getting started tutorial |
+| `docs/workflows.md` | Common workflow patterns |
 | `docs/architecture.md` | Architecture, state model, command flows |
 | `docs/file-contracts.md` | Repo-local file semantics and contracts |
 | `tests/TESTING.md` | Test coverage strategy |

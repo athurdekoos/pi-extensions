@@ -22,7 +22,7 @@ Tests use **vitest** and run via `npm test`. All tests are pure-helper / module-
 - `buildCurrentStateValue()` breaks with null/undefined override
 - `buildCurrentStateValue()` output disagrees with manual `DEFAULT_CURRENT_STATE_TEMPLATE` substitution
 
-**Phase 8 addition**: New test file covering the extracted template primitives module.
+New test file covering the extracted template primitives module.
 
 ### `repo.test.ts`
 
@@ -38,7 +38,7 @@ Tests use **vitest** and run via `npm test`. All tests are pure-helper / module-
 - State classification drifts from expected state model
 - Exec args are incorrect
 
-**Phase 5 additions**: `detectRepoRootWith()` and `detectPlanStateWith()` are now tested via the injectable `ExecFn` seam. All five state scenarios are covered: no-repo, not-initialized, partially initialized, initialized-no-plan, initialized-has-plan.
+Also tests `detectRepoRootWith()` and `detectPlanStateWith()` via the injectable `ExecFn` seam. All five state scenarios are covered: no-repo, not-initialized, partially initialized, initialized-no-plan, initialized-has-plan.
 
 ### `plangen.test.ts`
 
@@ -65,13 +65,7 @@ Tests use **vitest** and run via `npm test`. All tests are pure-helper / module-
 - Double injection of goal when `{{GOAL}}` is present
 - `generatePlanWithMeta()` misreports template usage
 
-**Phase 5 additions**: Template-aware generation is now fully tested.
-
-**Phase 6 additions**: Explicit placeholder substitution tested: `{{GOAL}}`, `{{REPO_ROOT}}`, `{{CURRENT_STATE}}` substitution, multi-placeholder lines, unknown token preservation, section-name fallback for Goal/Current State without placeholders, no double-injection, fallback on missing/malformed templates. `generatePlanWithMeta()` tested; `TEMPLATE_PLACEHOLDERS` tested (imported from `template-core.ts` since Phase 9).
-
-**Phase 7 additions**: `{{CURRENT_STATE}}` configurability tested: default block used when no override, custom `currentStateTemplate` applied correctly, `{{REPO_ROOT}}` substituted within custom template, null/undefined falls back to default. `generatePlanWithMeta()` now returns `templateMode` — tested for all four modes.
-
-**Phase 8 additions**: CURRENT_STATE consistency tested across all three generation paths: section-name fallback uses config override, fallback sections use config override, explicit `{{CURRENT_STATE}}` and section-name fallback produce identical content, default CURRENT_STATE is consistent across all three paths.
+Also tests template-aware generation, explicit placeholder substitution (`{{GOAL}}`, `{{REPO_ROOT}}`, `{{CURRENT_STATE}}`), multi-placeholder lines, unknown token preservation, section-name fallback, no double-injection, fallback on missing/malformed templates, `generatePlanWithMeta()`, `TEMPLATE_PLACEHOLDERS`, `{{CURRENT_STATE}}` configurability, template mode reporting, and CURRENT_STATE consistency across all three generation paths.
 
 ### `archive.test.ts`
 
@@ -104,7 +98,7 @@ Tests use **vitest** and run via `npm test`. All tests are pure-helper / module-
 - Placeholder current.md causes reconciliation errors
 - Large archive counts cause issues
 
-**Phase 5 addition**: New test file covering all reconciliation scenarios.
+Covers all reconciliation scenarios.
 
 ### `template-analysis.test.ts`
 
@@ -121,7 +115,7 @@ Tests use **vitest** and run via `npm test`. All tests are pure-helper / module-
 - Disk-based analysis disagrees with pure analysis
 - Generation and diagnostics disagree on template classification
 
-**Phase 7 addition**: New test file covering all four template modes, placeholder detection, disk-based analysis, and agreement between generation and diagnostics. Imports template primitives from `template-core.ts` directly (since Phase 9).
+Covers all four template modes, placeholder detection, disk-based analysis, and agreement between generation and diagnostics.
 
 ### `orchestration.test.ts`
 
@@ -148,11 +142,7 @@ Tests use **vitest** and run via `npm test`. All tests are pure-helper / module-
 - Plan-debug doesn't write log or handle no-repo
 - resolveGoal doesn't respect inline args config
 
-**Phase 5 addition**: New test file covering the important command branches through the extracted `PlanUI` interface.
-
-**Phase 6 additions**: Multi-step orchestration flows now tested at the orchestration layer: replace success (archives old, writes new), replace cancel (no file changes), replace with inline args, restore success (archives current, restores selected), restore cancel (no file changes), archive list cancel, no-archives path.
-
-**Phase 7 additions**: Template repair/reset flow: missing template triggers repair offer, user can accept (template restored) or decline (fallback used), legacy template shows info notice without blocking, healthy template shows no notice, repair also offered during replace flow. Config `currentStateTemplate` passthrough to plan generation.
+Also tests multi-step orchestration flows (replace, restore, cancel), inline args, template repair/reset flow (missing template triggers repair offer, legacy template info notice, healthy template no notice), and config `currentStateTemplate` passthrough to plan generation.
 
 ### `diagnostics.test.ts`
 
@@ -168,9 +158,7 @@ Tests use **vitest** and run via `npm test`. All tests are pure-helper / module-
 - Config-aware fields not reflected in snapshot
 - Template info misreports usability or section count
 
-**Phase 6 additions**: Template info (`template.usable`, `template.sectionCount`) tested across states: not-initialized, initialized with default template, malformed template, custom template, no-repo. Notes about template usability/fallback verified.
-
-**Phase 7 additions**: Template mode (`template.mode`), `hasExplicitPlaceholders`, `usesFallback`, `repairRecommended` tested across states. Verified mode classification matches shared analysis. No file contents leak into mode or repair fields.
+Also tests template info (`template.usable`, `template.sectionCount`, `template.mode`, `hasExplicitPlaceholders`, `usesFallback`, `repairRecommended`) across states. Verified mode classification matches shared analysis.
 
 ### `config.test.ts`
 
@@ -184,9 +172,9 @@ Tests use **vitest** and run via `npm test`. All tests are pure-helper / module-
 - Valid overrides ignored
 - Per-field fallback doesn't work (valid fields lost when one field is bad)
 - Unknown keys cause warnings (they should be silent)
-- `currentStateTemplate` string override not applied (Phase 7)
-- `currentStateTemplate` null override not accepted (Phase 7)
-- Invalid `currentStateTemplate` types not caught (Phase 7)
+- `currentStateTemplate` string override not applied
+- `currentStateTemplate` null override not accepted
+- Invalid `currentStateTemplate` types not caught
 
 ### `summary.test.ts`
 
@@ -212,7 +200,121 @@ Tests use **vitest** and run via `npm test`. All tests are pure-helper / module-
 - Expected event hooks not wired (missing lifecycle hook, wrong event name)
 - New commands/tools/flags/hooks added without updating the smoke test (exact surface assertion)
 
-**How it works**: Calls the default export of `index.ts` with a minimal mock `ExtensionAPI` that records all `registerCommand`, `registerTool`, `registerFlag`, and `on` calls. Asserts the exact expected surface: 5 commands, 1 tool, 1 flag, 7 event hooks.
+**How it works**: Calls the default export of `index.ts` with a minimal mock `ExtensionAPI` that records all `registerCommand`, `registerTool`, `registerFlag`, and `on` calls. Asserts the exact expected surface: 6 commands, 2 tools, 1 flag, 7 event hooks.
+
+### `tdd.test.ts`
+
+**Covers**: `tdd.ts` — `globToRegex()`, `isTestFile()`, `evaluateTddGate()`, `validateStepCompletion()`, `logTddCompliance()`.
+
+**Regressions caught**:
+- Glob-to-regex conversion fails for common patterns
+- Test file detection misses test files or falsely identifies production files
+- TDD gate allows production writes before test writes
+- TDD gate blocks `.pi/` file writes (should always allow)
+- Step completion validation accepts non-compliant steps
+- Compliance logging fails to create daily log files
+- Compliance logging overwrites existing entries (must be append-only)
+
+### `brainstorm.test.ts`
+
+**Covers**: `brainstorm.ts` — `generateSpecFilename()`, `writeSpec()`, `readSpec()`, `listSpecs()`.
+
+**Regressions caught**:
+- Spec filename format doesn't match `YYYY-MM-DD-HHMM-slug.md` pattern
+- writeSpec creates files in wrong directory
+- readSpec fails for existing files or doesn't return null for missing files
+- listSpecs doesn't sort newest-first
+- listSpecs returns wrong title or date metadata
+- Spec immutability violated (should not overwrite)
+
+### `worktree.test.ts`
+
+**Covers**: `worktree.ts` — `deriveWorktreeBranch()`, `isWorktreeDirIgnored()`, `addWorktreeDirToGitignore()`, `detectSetupCommands()`, `writeWorktreeState()`, `readWorktreeState()`, `createWorktreeForPlan()`, `cleanupWorktree()`.
+
+**Regressions caught**:
+- Branch derivation doesn't follow `plan/<slug>` convention
+- Gitignore detection fails
+- Gitignore addition creates duplicate entries
+- Setup command detection misses common package managers
+- Worktree state serialization/deserialization fails
+- readWorktreeState doesn't return null when no active worktree
+- createWorktreeForPlan fails to create worktree or report errors
+- cleanupWorktree fails to remove worktree or clean up state
+
+### `auto-plan.test.ts`
+
+**Covers**: `auto-plan.ts` — `computePhase()`, `getContextMessage()`, `extractStepsFromCurrentPlan()`, `getStatusDisplay()`, `getWidgetLines()`, `serializeState()`, `restoreState()`.
+
+**Regressions caught**:
+- Phase computation returns wrong phase for given state
+- Any of the 8 phases not reachable or not correctly classified
+- Context messages missing or wrong for a phase
+- Step extraction from current.md fails
+- Status display or widget lines incorrect for a phase
+- State serialization loses fields (especially new TDD/worktree fields)
+- State restoration produces wrong phase or missing data
+
+### `harness.test.ts`
+
+**Covers**: `harness.ts` — `evaluateInput()`, `evaluateHarnessCommand()`.
+
+**Regressions caught**:
+- Input evaluation blocks user messages (must never block)
+- Wrong context injection for a given phase
+- Inactive phase doesn't pass through cleanly
+- Brainstorming phase context missing
+- Executing phase context missing
+- Harness command matching fails
+
+### `phase2.test.ts`
+
+**Covers**: Config extensions, review records, step format support, and legacy migration paths.
+
+**Regressions caught**:
+- Config extensions not applied correctly
+- Review record format or write path incorrect
+- Step format detection broken for numbered or checkbox formats
+- Legacy PLAN.md migration fails
+
+### `phase3.test.ts`
+
+**Covers**: Template primitives, section parsing, and section extraction integration scenarios.
+
+**Regressions caught**:
+- Template section parsing produces wrong structure
+- Section extraction misses sections or includes wrong content
+- Integration between template parsing and plan generation broken
+
+### `phase4.test.ts`
+
+**Covers**: Integration scenarios spanning TDD, brainstorming, and worktree modules.
+
+**Regressions caught**:
+- TDD gating doesn't integrate correctly with execution phase
+- Brainstorm-to-plan transition broken
+- Worktree lifecycle doesn't integrate with plan creation/completion
+- New config options not applied correctly end-to-end
+
+### `browser.test.ts`
+
+**Covers**: `browser.ts` — `openBrowser()` system browser launcher.
+
+**Regressions caught**:
+- Browser launch fails or uses wrong browser
+- `PI_PLAN_BROWSER` env var override not respected
+- `BROWSER` env var fallback not used
+- Non-interactive environments not handled gracefully
+
+### `server.test.ts`
+
+**Covers**: `server.ts` — ephemeral HTTP servers for plan review, code review, and markdown annotation UIs.
+
+**Regressions caught**:
+- Server fails to start or bind to a port
+- Plan review endpoint serves wrong content or assets
+- Code review endpoint fails for different diff modes
+- Annotation endpoint fails to load markdown content
+- Server cleanup doesn't release ports
 
 ## What Is NOT Automated
 
@@ -252,6 +354,15 @@ Then test:
 15. Decline template restore → verify template not restored, plan still created with fallback sections
 16. Legacy template (no placeholders) → should show info notice, not offer repair
 17. Set `currentStateTemplate` in `.pi/pi-plan.json`, create plan with `{{CURRENT_STATE}}` → verify custom expansion
+18. `/tdd` → should toggle TDD enforcement and show compliance summary
+19. With TDD ON, try writing production file before test → should be blocked
+20. Write test file first, then production file → both succeed
+21. Check `.pi/tdd/compliance-YYYY-MM-DD.json` → should contain compliance entries
+22. With brainstorming enabled, start new plan → should enter brainstorming phase
+23. Agent writes spec, calls `submit_spec` → should transition to planning
+24. With worktree enabled, create plan → should create `.worktrees/<slug>/`
+25. Check `.pi/worktrees/active.json` → should contain worktree info
+26. Complete/archive plan → worktree should be cleaned up
 
 ## Test Isolation
 
