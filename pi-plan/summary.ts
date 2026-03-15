@@ -20,6 +20,14 @@
  */
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// ---------------------------------------------------------------------------
 // Plan summary extraction for resume and archive polish
 // ---------------------------------------------------------------------------
 
@@ -69,7 +77,7 @@ function extractSectionLines(lines: string[], sectionName: string, maxLines: num
 
       result.push(trimmed);
       if (result.length >= maxLines) break;
-    } else if (new RegExp(`^##\\s+${sectionName}`).test(line)) {
+    } else if (new RegExp(`^##\\s+${escapeRegExp(sectionName)}`).test(line)) {
       inSection = true;
     }
   }

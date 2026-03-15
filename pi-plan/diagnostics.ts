@@ -259,6 +259,11 @@ export function collectDiagnostics(
       initialization: { isFullyInitialized: false },
       environment: { insideRepo: false },
       config: configInfo,
+      review: {
+        planReviewUIAvailable: hasPlanReviewUI(),
+        codeReviewUIAvailable: hasCodeReviewUI(),
+        reviewRecordCount: 0,
+      },
       warnings: ["No git repository detected."],
       notes,
     };

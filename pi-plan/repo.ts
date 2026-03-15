@@ -21,7 +21,7 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import {
   PLANNING_PROTOCOL,
   TASK_PLAN_TEMPLATE,
@@ -38,6 +38,9 @@ export const PLANNING_PROTOCOL_REL = ".pi/PLANNING_PROTOCOL.md";
 export const TASK_PLAN_TEMPLATE_REL = ".pi/templates/task-plan.md";
 export const CURRENT_PLAN_REL = ".pi/plans/current.md";
 export const PLANS_INDEX_REL = ".pi/plans/index.md";
+export const SPECS_DIR_REL = ".pi/specs";
+export const TDD_DIR_REL = ".pi/tdd";
+export const WORKTREE_STATE_DIR_REL = ".pi/worktrees";
 
 // ---------------------------------------------------------------------------
 // Command runner seam (for testability)
@@ -178,7 +181,7 @@ export function writeCurrentPlan(repoRoot: string, content: string): boolean {
   if (hasCurrentPlan(repoRoot)) return false;
 
   const abs = join(repoRoot, CURRENT_PLAN_REL);
-  const dir = join(abs, "..");
+  const dir = dirname(abs);
   mkdirSync(dir, { recursive: true });
   writeFileSync(abs, content, "utf-8");
   return true;
@@ -290,7 +293,7 @@ export function migrateLegacyPlan(repoRoot: string): string | null {
   if (hasCurrentPlan(repoRoot)) return null;
 
   const abs = join(repoRoot, CURRENT_PLAN_REL);
-  mkdirSync(join(abs, ".."), { recursive: true });
+  mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, content, "utf-8");
   return content;
 }
@@ -312,7 +315,7 @@ export function initPlanning(repoRoot: string): string[] {
     if (existsSync(abs)) continue;
 
     // Ensure parent directory exists
-    const dir = join(abs, "..");
+    const dir = dirname(abs);
     mkdirSync(dir, { recursive: true });
 
     writeFileSync(abs, file.content, "utf-8");

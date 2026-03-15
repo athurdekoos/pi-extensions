@@ -23,7 +23,7 @@
  */
 
 import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import { CURRENT_PLAN_REL, PLANS_INDEX_REL, isFullyInitialized } from "./repo.js";
 
 // ---------------------------------------------------------------------------
@@ -176,7 +176,7 @@ export function forceWriteCurrentPlan(repoRoot: string, content: string): void {
   if (!isContainedIn(abs, repoRoot)) {
     throw new Error(`Path escapes repository root: ${CURRENT_PLAN_REL}`);
   }
-  mkdirSync(join(abs, ".."), { recursive: true });
+  mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, content, "utf-8");
 }
 
@@ -355,7 +355,7 @@ export function updateIndex(
   lines.push("");
 
   const abs = join(repoRoot, PLANS_INDEX_REL);
-  mkdirSync(join(abs, ".."), { recursive: true });
+  mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, lines.join("\n"), "utf-8");
 }
 

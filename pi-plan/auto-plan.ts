@@ -38,33 +38,47 @@ import { extractStepsFromPlan, type TodoItem } from "./mode-utils.js";
  * - "executing": Toggled ON, actively tracking step completion.
  */
 export type AutoPlanPhase =
-	| "inactive"
-	| "no-repo"
-	| "not-initialized"
-	| "needs-plan"
-	| "has-plan"
-	| "review-pending"
-	| "executing";
+  | "inactive"
+  | "no-repo"
+  | "not-initialized"
+  | "needs-plan"
+  | "brainstorming"
+  | "has-plan"
+  | "review-pending"
+  | "executing"
+  | "finishing";
 
 // ---------------------------------------------------------------------------
 // Mutable runtime state (managed by index.ts lifecycle hooks)
 // ---------------------------------------------------------------------------
 
 export interface AutoPlanState {
-	phase: AutoPlanPhase;
-	repoRoot: string | null;
-	todoItems: TodoItem[];
-	/** Whether enforcement is toggled on via /plan */
-	enforcementActive: boolean;
+  phase: AutoPlanPhase;
+  repoRoot: string | null;
+  todoItems: TodoItem[];
+  /** Whether enforcement is toggled on via /plan */
+  enforcementActive: boolean;
+  /** Whether a test file has been written in the current step (TDD enforcement) */
+  tddStepTestWritten: boolean;
+  /** Whether a git worktree is currently active */
+  worktreeActive: boolean;
+  /** Absolute path to the active worktree, or null */
+  worktreePath: string | null;
+  /** Path to the approved brainstorm spec, or null */
+  brainstormSpecPath: string | null;
 }
 
 export function createInitialState(): AutoPlanState {
-	return {
-		phase: "inactive",
-		repoRoot: null,
-		todoItems: [],
-		enforcementActive: false,
-	};
+  return {
+    phase: "inactive",
+    repoRoot: null,
+    todoItems: [],
+    enforcementActive: false,
+    tddStepTestWritten: false,
+    worktreeActive: false,
+    worktreePath: null,
+    brainstormSpecPath: null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -78,18 +92,18 @@ export function createInitialState(): AutoPlanState {
  * If enforcement is not active, always returns "inactive".
  */
 export function computePhase(enforcementActive: boolean, planState: PlanState): AutoPlanPhase {
-	if (!enforcementActive) return "inactive";
+  if (!enforcementActive) return "inactive";
 
-	switch (planState.status) {
-		case "no-repo":
-			return "no-repo";
-		case "not-initialized":
-			return "not-initialized";
-		case "initialized-no-plan":
-			return "needs-plan";
-		case "initialized-has-plan":
-			return "has-plan";
-	}
+  switch (planState.status) {
+    case "no-repo":
+      return "no-repo";
+    case "not-initialized":
+      return "not-initialized";
+    case "initialized-no-plan":
+      return "needs-plan";
+    case "initialized-has-plan":
+      return "has-plan";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -102,47 +116,53 @@ export function computePhase(enforcementActive: boolean, planState: PlanState): 
  * Pure function — no side effects.
  */
 export function getContextMessage(
-	phase: AutoPlanPhase,
-	todoItems: TodoItem[],
+  phase: AutoPlanPhase,
+  todoItems: TodoItem[],
 ): string | null {
-	switch (phase) {
-		case "inactive":
-		case "no-repo":
-		case "not-initialized":
-			return null;
+  switch (phase) {
+    case "inactive":
+    case "no-repo":
+    case "not-initialized":
+      return null;
 
-		case "needs-plan":
-			return `[PLAN ENFORCEMENT ACTIVE — No plan exists]
+    case "brainstorming":
+      return `[PLAN ENFORCEMENT — Brainstorming] Design phase active. Write a spec document to .pi/specs/ using the submit_spec tool when ready.`;
+
+    case "needs-plan":
+      return `[PLAN ENFORCEMENT ACTIVE — No plan exists]
 A plan is required before implementation can begin.
 The user should run /plan to create a plan.
 You can help them think through the task, explore the codebase, and discuss approach.
 Do not make code changes until a plan exists in .pi/plans/current.md.`;
 
-		case "has-plan":
-			return `[PLAN ENFORCEMENT ACTIVE]
+    case "has-plan":
+      return `[PLAN ENFORCEMENT ACTIVE]
 A plan exists at .pi/plans/current.md. Read it and follow the implementation steps.`;
 
-		case "review-pending":
-			return `[PLAN ENFORCEMENT ACTIVE — Review Pending]
+    case "review-pending":
+      return `[PLAN ENFORCEMENT ACTIVE — Review Pending]
 The plan has been submitted for review. Wait for the user's decision in the browser UI.
 Do not proceed with implementation until the review is complete.`;
 
-		case "executing": {
-			if (todoItems.length === 0) return null;
-			const remaining = todoItems.filter((t) => !t.completed);
-			if (remaining.length === 0) return null;
-			const stepList = remaining
-				.map((t) => `${t.step}. ${t.text}`)
-				.join("\n");
-			return `[PLAN ENFORCEMENT ACTIVE — Executing]
+    case "finishing":
+      return `[PLAN ENFORCEMENT — Finishing] Plan complete. Branch finishing workflow in progress. Do not make any changes.`;
+
+    case "executing": {
+      if (todoItems.length === 0) return null;
+      const remaining = todoItems.filter((t) => !t.completed);
+      if (remaining.length === 0) return null;
+      const stepList = remaining
+        .map((t) => `${t.step}. ${t.text}`)
+        .join("\n");
+      return `[PLAN ENFORCEMENT ACTIVE — Executing]
 
 Remaining steps:
 ${stepList}
 
 Execute each step in order.
 After completing a step, include a [DONE:n] tag in your response (e.g. [DONE:1]).`;
-		}
-	}
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -154,11 +174,11 @@ After completing a step, include a [DONE:n] tag in your response (e.g. [DONE:1])
  * Returns an empty array if the file doesn't exist or has no steps.
  */
 export function extractStepsFromCurrentPlan(repoRoot: string): TodoItem[] {
-	const filePath = join(repoRoot, CURRENT_PLAN_REL);
-	if (!existsSync(filePath)) return [];
+  const filePath = join(repoRoot, CURRENT_PLAN_REL);
+  if (!existsSync(filePath)) return [];
 
-	const content = readFileSync(filePath, "utf-8");
-	return extractStepsFromPlan(content);
+  const content = readFileSync(filePath, "utf-8");
+  return extractStepsFromPlan(content);
 }
 
 // ---------------------------------------------------------------------------
@@ -166,8 +186,8 @@ export function extractStepsFromCurrentPlan(repoRoot: string): TodoItem[] {
 // ---------------------------------------------------------------------------
 
 export interface StatusDisplay {
-	key: string;
-	text: string | undefined;
+  key: string;
+  text: string | undefined;
 }
 
 /**
@@ -178,25 +198,29 @@ export interface StatusDisplay {
  * It shows in every enforced phase except "executing" (where progress takes over).
  */
 export function getStatusDisplay(
-	phase: AutoPlanPhase,
-	todoItems: TodoItem[],
+  phase: AutoPlanPhase,
+  todoItems: TodoItem[],
 ): StatusDisplay {
-	switch (phase) {
-		case "inactive":
-		case "no-repo":
-			return { key: "pi-plan", text: undefined };
-		case "not-initialized":
-		case "needs-plan":
-		case "has-plan":
-			return { key: "pi-plan", text: "⏸ plan" };
-		case "review-pending":
-			return { key: "pi-plan", text: "👁 review" };
-		case "executing": {
-			if (todoItems.length === 0) return { key: "pi-plan", text: "⏸ plan" };
-			const completed = todoItems.filter((t) => t.completed).length;
-			return { key: "pi-plan", text: `📋 ${completed}/${todoItems.length}` };
-		}
-	}
+  switch (phase) {
+    case "inactive":
+    case "no-repo":
+      return { key: "pi-plan", text: undefined };
+    case "not-initialized":
+    case "needs-plan":
+    case "has-plan":
+      return { key: "pi-plan", text: "⏸ plan" };
+    case "brainstorming":
+      return { key: "pi-plan", text: "💡 brainstorm" };
+    case "review-pending":
+      return { key: "pi-plan", text: "👁 review" };
+    case "finishing":
+      return { key: "pi-plan", text: "🏁 finishing" };
+    case "executing": {
+      if (todoItems.length === 0) return { key: "pi-plan", text: "⏸ plan" };
+      const completed = todoItems.filter((t) => t.completed).length;
+      return { key: "pi-plan", text: `📋 ${completed}/${todoItems.length}` };
+    }
+  }
 }
 
 /**
@@ -204,18 +228,20 @@ export function getStatusDisplay(
  * Returns undefined to hide the widget.
  */
 export function getWidgetLines(
-	phase: AutoPlanPhase,
-	todoItems: TodoItem[],
+  phase: AutoPlanPhase,
+  todoItems: TodoItem[],
 ): string[] | undefined {
-	if (phase === "review-pending") return ["  👁 Plan review in progress..."];
-	if (phase !== "executing" || todoItems.length === 0) return undefined;
+  if (phase === "brainstorming") return ["  💡 Brainstorming..."];
+  if (phase === "review-pending") return ["  👁 Plan review in progress..."];
+  if (phase === "finishing") return ["  🏁 Finishing workflow..."];
+  if (phase !== "executing" || todoItems.length === 0) return undefined;
 
-	return todoItems.map((item) => {
-		if (item.completed) {
-			return `  ☑ ~~${item.text}~~`;
-		}
-		return `  ☐ ${item.text}`;
-	});
+  return todoItems.map((item) => {
+    if (item.completed) {
+      return `  ☑ ~~${item.text}~~`;
+    }
+    return `  ☐ ${item.text}`;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -223,27 +249,39 @@ export function getWidgetLines(
 // ---------------------------------------------------------------------------
 
 export interface PersistedAutoState {
-	phase: AutoPlanPhase;
-	todoItems: TodoItem[];
-	enforcementActive: boolean;
+  phase: AutoPlanPhase;
+  todoItems: TodoItem[];
+  enforcementActive: boolean;
+  tddStepTestWritten?: boolean;
+  worktreeActive?: boolean;
+  worktreePath?: string | null;
+  brainstormSpecPath?: string | null;
 }
 
 export function serializeState(state: AutoPlanState): PersistedAutoState {
-	return {
-		phase: state.phase,
-		todoItems: state.todoItems,
-		enforcementActive: state.enforcementActive,
-	};
+  return {
+    phase: state.phase,
+    todoItems: state.todoItems,
+    enforcementActive: state.enforcementActive,
+    tddStepTestWritten: state.tddStepTestWritten,
+    worktreeActive: state.worktreeActive,
+    worktreePath: state.worktreePath,
+    brainstormSpecPath: state.brainstormSpecPath,
+  };
 }
 
 export function restoreState(
-	persisted: PersistedAutoState,
-	repoRoot: string | null,
+  persisted: PersistedAutoState,
+  repoRoot: string | null,
 ): AutoPlanState {
-	return {
-		phase: persisted.phase,
-		repoRoot,
-		todoItems: persisted.todoItems,
-		enforcementActive: persisted.enforcementActive,
-	};
+  return {
+    phase: persisted.phase,
+    repoRoot,
+    todoItems: persisted.todoItems,
+    enforcementActive: persisted.enforcementActive,
+    tddStepTestWritten: persisted.tddStepTestWritten ?? false,
+    worktreeActive: persisted.worktreeActive ?? false,
+    worktreePath: persisted.worktreePath ?? null,
+    brainstormSpecPath: persisted.brainstormSpecPath ?? null,
+  };
 }

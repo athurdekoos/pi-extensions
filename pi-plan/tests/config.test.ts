@@ -121,6 +121,15 @@ describe("loadConfig — valid overrides", () => {
       injectPlanContext: true,
       reviewDir: ".pi/plans/reviews",
       stepFormat: "both",
+      tddEnforcement: false,
+      testFilePatterns: ["*.test.*"],
+      brainstormEnabled: false,
+      worktreeEnabled: false,
+      specDir: ".pi/custom-specs",
+      tddLogDir: ".pi/custom-tdd",
+      worktreeStateDir: ".pi/custom-worktrees",
+      defaultFinishAction: "merge",
+      prTemplate: "PR for {{BRANCH}}",
     };
     writeConfig(JSON.stringify(full));
     const { config, warnings } = loadConfig(tmp);
@@ -322,5 +331,131 @@ describe("loadConfig — path traversal prevention", () => {
     const { config, warnings } = loadConfig(tmp);
     expect(config.debugLogDir).toBe(".pi/custom-logs");
     expect(warnings).toHaveLength(0);
+  });
+
+  it("rejects specDir containing '..'", () => {
+    writeConfig(JSON.stringify({ specDir: "../outside" }));
+    const { config, warnings } = loadConfig(tmp);
+    expect(config.specDir).toBe(DEFAULT_CONFIG.specDir);
+    expect(warnings.some(w => w.includes("specDir") && w.includes(".."))).toBe(true);
+  });
+
+  it("rejects tddLogDir containing '..'", () => {
+    writeConfig(JSON.stringify({ tddLogDir: "../outside" }));
+    const { config, warnings } = loadConfig(tmp);
+    expect(config.tddLogDir).toBe(DEFAULT_CONFIG.tddLogDir);
+    expect(warnings.some(w => w.includes("tddLogDir") && w.includes(".."))).toBe(true);
+  });
+
+  it("rejects worktreeStateDir containing '..'", () => {
+    writeConfig(JSON.stringify({ worktreeStateDir: "../outside" }));
+    const { config, warnings } = loadConfig(tmp);
+    expect(config.worktreeStateDir).toBe(DEFAULT_CONFIG.worktreeStateDir);
+    expect(warnings.some(w => w.includes("worktreeStateDir") && w.includes(".."))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// New config fields
+// ---------------------------------------------------------------------------
+
+describe("loadConfig — new config fields", () => {
+  it("defaults tddEnforcement to true", () => {
+    const { config } = loadConfig(tmp);
+    expect(config.tddEnforcement).toBe(true);
+  });
+
+  it("overrides tddEnforcement to false", () => {
+    writeConfig(JSON.stringify({ tddEnforcement: false }));
+    const { config, warnings } = loadConfig(tmp);
+    expect(config.tddEnforcement).toBe(false);
+    expect(warnings).toHaveLength(0);
+  });
+
+  it("falls back for non-boolean tddEnforcement", () => {
+    writeConfig(JSON.stringify({ tddEnforcement: "yes" }));
+    const { config, warnings } = loadConfig(tmp);
+    expect(config.tddEnforcement).toBe(DEFAULT_CONFIG.tddEnforcement);
+    expect(warnings.some(w => w.includes("tddEnforcement"))).toBe(true);
+  });
+
+  it("defaults testFilePatterns to standard patterns", () => {
+    const { config } = loadConfig(tmp);
+    expect(config.testFilePatterns).toEqual(DEFAULT_CONFIG.testFilePatterns);
+    expect(config.testFilePatterns).toContain("*.test.*");
+  });
+
+  it("overrides testFilePatterns", () => {
+    writeConfig(JSON.stringify({ testFilePatterns: ["*.test.ts"] }));
+    const { config, warnings } = loadConfig(tmp);
+    expect(config.testFilePatterns).toEqual(["*.test.ts"]);
+    expect(warnings).toHaveLength(0);
+  });
+
+  it("falls back for non-array testFilePatterns", () => {
+    writeConfig(JSON.stringify({ testFilePatterns: "*.test.*" }));
+    const { config, warnings } = loadConfig(tmp);
+    expect(config.testFilePatterns).toEqual(DEFAULT_CONFIG.testFilePatterns);
+    expect(warnings.some(w => w.includes("testFilePatterns"))).toBe(true);
+  });
+
+  it("falls back for testFilePatterns with non-string elements", () => {
+    writeConfig(JSON.stringify({ testFilePatterns: [42, "*.test.*"] }));
+    const { config, warnings } = loadConfig(tmp);
+    expect(config.testFilePatterns).toEqual(DEFAULT_CONFIG.testFilePatterns);
+    expect(warnings.some(w => w.includes("testFilePatterns"))).toBe(true);
+  });
+
+  it("defaults brainstormEnabled to true", () => {
+    const { config } = loadConfig(tmp);
+    expect(config.brainstormEnabled).toBe(true);
+  });
+
+  it("overrides brainstormEnabled to false", () => {
+    writeConfig(JSON.stringify({ brainstormEnabled: false }));
+    const { config, warnings } = loadConfig(tmp);
+    expect(config.brainstormEnabled).toBe(false);
+    expect(warnings).toHaveLength(0);
+  });
+
+  it("defaults worktreeEnabled to true", () => {
+    const { config } = loadConfig(tmp);
+    expect(config.worktreeEnabled).toBe(true);
+  });
+
+  it("overrides worktreeEnabled to false", () => {
+    writeConfig(JSON.stringify({ worktreeEnabled: false }));
+    const { config, warnings } = loadConfig(tmp);
+    expect(config.worktreeEnabled).toBe(false);
+    expect(warnings).toHaveLength(0);
+  });
+
+  it("defaults specDir to .pi/specs", () => {
+    const { config } = loadConfig(tmp);
+    expect(config.specDir).toBe(".pi/specs");
+  });
+
+  it("overrides specDir", () => {
+    writeConfig(JSON.stringify({ specDir: ".pi/custom-specs" }));
+    const { config, warnings } = loadConfig(tmp);
+    expect(config.specDir).toBe(".pi/custom-specs");
+    expect(warnings).toHaveLength(0);
+  });
+
+  it("falls back for empty specDir", () => {
+    writeConfig(JSON.stringify({ specDir: "  " }));
+    const { config, warnings } = loadConfig(tmp);
+    expect(config.specDir).toBe(DEFAULT_CONFIG.specDir);
+    expect(warnings.some(w => w.includes("specDir"))).toBe(true);
+  });
+
+  it("defaults tddLogDir to .pi/tdd", () => {
+    const { config } = loadConfig(tmp);
+    expect(config.tddLogDir).toBe(".pi/tdd");
+  });
+
+  it("defaults worktreeStateDir to .pi/worktrees", () => {
+    const { config } = loadConfig(tmp);
+    expect(config.worktreeStateDir).toBe(".pi/worktrees");
   });
 });

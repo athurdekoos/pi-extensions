@@ -11,7 +11,7 @@
  *   - Never blocks the event loop beyond the execSync call.
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import os from "node:os";
 
 /**
@@ -19,8 +19,11 @@ import os from "node:os";
  *
  * Honors PI_PLAN_BROWSER (takes priority) and BROWSER env vars.
  * On macOS, PI_PLAN_BROWSER is opened via `open -a`.
- * On Windows/WSL, uses `cmd.exe /c start`.
+ * On Windows/WSL, uses `cmd.exe /c start` (shell required for `start` builtin).
  * On Linux, uses `xdg-open` as fallback.
+ *
+ * Uses execFileSync with argument arrays where possible to avoid shell injection.
+ * Falls back to execSync only for Windows `cmd.exe /c start` (a shell builtin).
  *
  * Silently fails if no browser can be opened.
  */
@@ -32,18 +35,19 @@ export function openBrowser(url: string): void {
 
     if (browser) {
       if (process.env.PI_PLAN_BROWSER && platform === "darwin") {
-        execSync(`open -a ${JSON.stringify(browser)} ${JSON.stringify(url)}`, { stdio: "ignore" });
+        execFileSync("open", ["-a", browser, url], { stdio: "ignore" });
       } else if (platform === "win32" || wsl) {
+        // `start` is a cmd.exe builtin — must use shell
         execSync(`cmd.exe /c start "" ${JSON.stringify(browser)} ${JSON.stringify(url)}`, { stdio: "ignore" });
       } else {
-        execSync(`${JSON.stringify(browser)} ${JSON.stringify(url)}`, { stdio: "ignore" });
+        execFileSync(browser, [url], { stdio: "ignore" });
       }
     } else if (platform === "win32" || wsl) {
       execSync(`cmd.exe /c start "" ${JSON.stringify(url)}`, { stdio: "ignore" });
     } else if (platform === "darwin") {
-      execSync(`open ${JSON.stringify(url)}`, { stdio: "ignore" });
+      execFileSync("open", [url], { stdio: "ignore" });
     } else {
-      execSync(`xdg-open ${JSON.stringify(url)}`, { stdio: "ignore" });
+      execFileSync("xdg-open", [url], { stdio: "ignore" });
     }
   } catch {
     // Silently fail — browser open is best-effort

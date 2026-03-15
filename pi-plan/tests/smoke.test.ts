@@ -100,7 +100,9 @@ describe("extension entrypoint smoke test", () => {
     expect(reg.commands).toContain("todos");
     expect(reg.commands).toContain("plan-review");
     expect(reg.commands).toContain("plan-annotate");
-    expect(reg.commands).toHaveLength(5);
+    expect(reg.commands).toContain("tdd");
+    expect(reg.commands).toContain("plan-finish");
+    expect(reg.commands).toHaveLength(7);
   });
 
   it("registers the submit_plan tool", () => {
@@ -108,7 +110,8 @@ describe("extension entrypoint smoke test", () => {
     initExtension(api);
 
     expect(reg.tools).toContain("submit_plan");
-    expect(reg.tools).toHaveLength(1);
+    expect(reg.tools).toContain("submit_spec");
+    expect(reg.tools).toHaveLength(2);
   });
 
   it("registers the --plan flag", () => {
@@ -143,10 +146,12 @@ describe("extension entrypoint smoke test", () => {
       "plan",
       "plan-annotate",
       "plan-debug",
+      "plan-finish",
       "plan-review",
+      "tdd",
       "todos",
     ]);
-    expect(reg.tools).toEqual(["submit_plan"]);
+    expect(reg.tools.sort()).toEqual(["submit_plan", "submit_spec"]);
     expect(reg.flags).toEqual(["plan"]);
     expect(reg.events.sort()).toEqual([
       "agent_end",

@@ -45,7 +45,7 @@
  * Do NOT extend here: File I/O, state detection, archive operations.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { TASK_PLAN_TEMPLATE_REL } from "./repo.js";
 import { CURRENT_PLAN_SENTINEL } from "./defaults.js";
@@ -70,6 +70,8 @@ export interface PlanInput {
   repoRoot: string;
   /** Optional custom template for {{CURRENT_STATE}} expansion. May contain {{REPO_ROOT}}. */
   currentStateTemplate?: string | null;
+  /** Optional path to an approved brainstorm spec (relative to repoRoot) */
+  specPath?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,10 +120,23 @@ const FALLBACK_SECTIONS: TemplateSection[] = [
  * This ensures consistent behavior across placeholder and fallback paths.
  */
 function buildSubstitutions(input: PlanInput): Record<string, string> {
+  let specContent = "";
+  if (input.specPath) {
+    const specAbs = join(input.repoRoot, input.specPath);
+    if (existsSync(specAbs)) {
+      try {
+        specContent = readFileSync(specAbs, "utf-8");
+      } catch {
+        specContent = "";
+      }
+    }
+  }
+
   return {
     "{{GOAL}}": input.goal,
     "{{REPO_ROOT}}": input.repoRoot,
     "{{CURRENT_STATE}}": buildCurrentStateValue(input.repoRoot, input.currentStateTemplate),
+    "{{SPEC}}": specContent,
   };
 }
 

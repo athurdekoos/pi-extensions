@@ -132,6 +132,41 @@ export const CURRENT_PLAN_SENTINEL = "No active plan. Use the task plan template
 export const DEFAULT_CURRENT_STATE_TEMPLATE =
   "Repository root: `{{REPO_ROOT}}`\n\n_Describe what exists today. What is the starting point?_";
 
+// ---------------------------------------------------------------------------
+// Spec template for brainstorming
+// ---------------------------------------------------------------------------
+
+export const SPEC_TEMPLATE = `# Spec: [TITLE]
+
+## Problem Statement
+
+{{GOAL}}
+
+## Context
+
+_What is the current state? What led to this problem/opportunity?_
+
+## Constraints
+
+- _List technical, business, or timeline constraints._
+
+## Proposed Approach
+
+_Describe the high-level approach._
+
+## Alternatives Considered
+
+- _What other approaches were evaluated and why were they rejected?_
+
+## Open Questions
+
+- _What needs to be resolved before implementation?_
+
+## Success Criteria
+
+- _How do we know this design is correct?_
+`;
+
 export const PLANS_INDEX = `# Plan Index
 
 ## Current

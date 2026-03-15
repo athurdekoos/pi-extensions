@@ -18,9 +18,9 @@
 // ---------------------------------------------------------------------------
 
 export interface TodoItem {
-	step: number;
-	text: string;
-	completed: boolean;
+  step: number;
+  text: string;
+  completed: boolean;
 }
 
 /**
@@ -37,59 +37,59 @@ export interface TodoItem {
  * NOT from freeform agent chat output.
  */
 export function extractStepsFromPlan(planMarkdown: string): TodoItem[] {
-	const items: TodoItem[] = [];
+  const items: TodoItem[] = [];
 
-	// Find the Implementation Plan or Steps section
-	const sectionMatch = planMarkdown.match(/^##\s+(?:Implementation\s+Plan|Steps)\s*$/im);
-	if (!sectionMatch || sectionMatch.index === undefined) return items;
+  // Find the Implementation Plan or Steps section
+  const sectionMatch = planMarkdown.match(/^##\s+(?:Implementation\s+Plan|Steps)\s*$/im);
+  if (!sectionMatch || sectionMatch.index === undefined) return items;
 
-	// Extract the section body (until next H2 or end of string)
-	const sectionStart = sectionMatch.index + sectionMatch[0].length;
-	const nextH2 = planMarkdown.slice(sectionStart).match(/^##\s+/m);
-	const sectionEnd = nextH2?.index !== undefined
-		? sectionStart + nextH2.index
-		: planMarkdown.length;
-	const sectionBody = planMarkdown.slice(sectionStart, sectionEnd);
+  // Extract the section body (until next H2 or end of string)
+  const sectionStart = sectionMatch.index + sectionMatch[0].length;
+  const nextH2 = planMarkdown.slice(sectionStart).match(/^##\s+/m);
+  const sectionEnd = nextH2?.index !== undefined
+    ? sectionStart + nextH2.index
+    : planMarkdown.length;
+  const sectionBody = planMarkdown.slice(sectionStart, sectionEnd);
 
-	// Parse numbered items: "1. Step text" or "1) Step text"
-	const numberedPattern = /^\s*(\d+)[.)]\s+(.+)/gm;
-	// Parse checkbox items: "- [ ] Step text" or "- [x] Step text" or "* [ ] Step text"
-	const checkboxPattern = /^\s*[-*]\s*\[([ xX])\]\s+(.+)/gm;
+  // Parse numbered items: "1. Step text" or "1) Step text"
+  const numberedPattern = /^\s*(\d+)[.)]\s+(.+)/gm;
+  // Parse checkbox items: "- [ ] Step text" or "- [x] Step text" or "* [ ] Step text"
+  const checkboxPattern = /^\s*[-*]\s*\[([ xX])\]\s+(.+)/gm;
 
-	const numberedMatches: Array<{ index: number; text: string; completed: boolean }> = [];
-	const checkboxMatches: Array<{ index: number; text: string; completed: boolean }> = [];
+  const numberedMatches: Array<{ index: number; text: string; completed: boolean }> = [];
+  const checkboxMatches: Array<{ index: number; text: string; completed: boolean }> = [];
 
-	for (const match of sectionBody.matchAll(numberedPattern)) {
-		const text = match[2].trim();
-		if (text.startsWith("_") && text.endsWith("_")) continue;
-		if (text.length < 4) continue;
-		numberedMatches.push({ index: match.index!, text, completed: false });
-	}
+  for (const match of sectionBody.matchAll(numberedPattern)) {
+    const text = match[2].trim();
+    if (text.startsWith("_") && text.endsWith("_")) continue;
+    if (text.length < 4) continue;
+    numberedMatches.push({ index: match.index!, text, completed: false });
+  }
 
-	for (const match of sectionBody.matchAll(checkboxPattern)) {
-		const completed = match[1] !== " ";
-		const text = match[2].trim();
-		if (text.length < 4) continue;
-		checkboxMatches.push({ index: match.index!, text, completed });
-	}
+  for (const match of sectionBody.matchAll(checkboxPattern)) {
+    const completed = match[1] !== " ";
+    const text = match[2].trim();
+    if (text.length < 4) continue;
+    checkboxMatches.push({ index: match.index!, text, completed });
+  }
 
-	// Prefer whichever format has more matches; if equal, prefer checkbox
-	const matches = checkboxMatches.length >= numberedMatches.length
-		? checkboxMatches
-		: numberedMatches;
+  // Prefer whichever format has more matches; if equal, prefer checkbox
+  const matches = checkboxMatches.length >= numberedMatches.length
+    ? checkboxMatches
+    : numberedMatches;
 
-	// Sort by position in document
-	matches.sort((a, b) => a.index - b.index);
+  // Sort by position in document
+  matches.sort((a, b) => a.index - b.index);
 
-	for (const m of matches) {
-		items.push({
-			step: items.length + 1,
-			text: m.text,
-			completed: m.completed,
-		});
-	}
+  for (const m of matches) {
+    items.push({
+      step: items.length + 1,
+      text: m.text,
+      completed: m.completed,
+    });
+  }
 
-	return items;
+  return items;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,12 +100,12 @@ export function extractStepsFromPlan(planMarkdown: string): TodoItem[] {
  * Extract step numbers from [DONE:n] markers in text.
  */
 export function extractDoneSteps(text: string): number[] {
-	const steps: number[] = [];
-	for (const match of text.matchAll(/\[DONE:(\d+)\]/gi)) {
-		const step = Number(match[1]);
-		if (Number.isFinite(step)) steps.push(step);
-	}
-	return steps;
+  const steps: number[] = [];
+  for (const match of text.matchAll(/\[DONE:(\d+)\]/gi)) {
+    const step = Number(match[1]);
+    if (Number.isFinite(step)) steps.push(step);
+  }
+  return steps;
 }
 
 /**
@@ -113,14 +113,14 @@ export function extractDoneSteps(text: string): number[] {
  * Returns the number of newly completed steps.
  */
 export function markCompletedSteps(text: string, items: TodoItem[]): number {
-	const doneSteps = extractDoneSteps(text);
-	let count = 0;
-	for (const step of doneSteps) {
-		const item = items.find((t) => t.step === step && !t.completed);
-		if (item) {
-			item.completed = true;
-			count++;
-		}
-	}
-	return count;
+  const doneSteps = extractDoneSteps(text);
+  let count = 0;
+  for (const step of doneSteps) {
+    const item = items.find((t) => t.step === step && !t.completed);
+    if (item) {
+      item.completed = true;
+      count++;
+    }
+  }
+  return count;
 }

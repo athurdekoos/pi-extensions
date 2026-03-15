@@ -70,8 +70,13 @@ describe("evaluateInput", () => {
     expect(result.action).toBe("continue");
   });
 
+  it("returns continue for brainstorming phase", () => {
+    const result = evaluateInput("brainstorming", "design the auth flow");
+    expect(result.action).toBe("continue");
+  });
+
   it("never returns handled for any phase", () => {
-    const phases = ["inactive", "no-repo", "not-initialized", "needs-plan", "has-plan", "executing"] as const;
+    const phases = ["inactive", "no-repo", "not-initialized", "needs-plan", "brainstorming", "has-plan", "executing"] as const;
     for (const phase of phases) {
       const result = evaluateInput(phase, "any input");
       expect(result.action).not.toBe("handled");

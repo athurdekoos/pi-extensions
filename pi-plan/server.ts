@@ -19,15 +19,27 @@
  */
 
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
+
+const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
 
 function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve) => {
     let data = "";
-    req.on("data", (chunk: string) => (data += chunk));
+    let done = false;
+    req.on("data", (chunk: string) => {
+      if (done) return;
+      data += chunk;
+      if (data.length > MAX_BODY_BYTES) {
+        done = true;
+        req.destroy();
+        resolve({});
+      }
+    });
     req.on("end", () => {
+      if (done) return;
       try {
         resolve(JSON.parse(data));
       } catch {
@@ -83,6 +95,7 @@ export function startPlanReviewServer(options: {
   const decisionPromise = new Promise<{ approved: boolean; feedback?: string }>((r) => {
     resolveDecision = r;
   });
+  let resolved = false;
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url!, `http://localhost`);
@@ -94,10 +107,14 @@ export function startPlanReviewServer(options: {
         previousPlan: options.previousPlan,
       });
     } else if (url.pathname === "/api/approve" && req.method === "POST") {
+      if (resolved) { json(res, { error: "Already resolved" }, 409); return; }
+      resolved = true;
       const body = await parseBody(req);
       resolveDecision({ approved: true, feedback: body.feedback as string | undefined });
       json(res, { ok: true });
     } else if (url.pathname === "/api/deny" && req.method === "POST") {
+      if (resolved) { json(res, { error: "Already resolved" }, 409); return; }
+      resolved = true;
       const body = await parseBody(req);
       resolveDecision({ approved: false, feedback: (body.feedback as string) || "Plan rejected" });
       json(res, { ok: true });
@@ -139,9 +156,9 @@ export interface ReviewServerResult {
 }
 
 /** Run a git command and return stdout (empty string on error). */
-function git(cmd: string): string {
+function git(args: string[]): string {
   try {
-    return execSync(`git ${cmd}`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    return execFileSync("git", args, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
   } catch {
     return "";
   }
@@ -149,15 +166,15 @@ function git(cmd: string): string {
 
 /** Detect current branch, default branch, and available diff options. */
 export function getGitContext(): GitContext {
-  const currentBranch = git("rev-parse --abbrev-ref HEAD") || "HEAD";
+  const currentBranch = git(["rev-parse", "--abbrev-ref", "HEAD"]) || "HEAD";
 
   let defaultBranch = "";
-  const symRef = git("symbolic-ref refs/remotes/origin/HEAD");
+  const symRef = git(["symbolic-ref", "refs/remotes/origin/HEAD"]);
   if (symRef) {
     defaultBranch = symRef.replace("refs/remotes/origin/", "");
   }
   if (!defaultBranch) {
-    const hasMain = git("show-ref --verify refs/heads/main");
+    const hasMain = git(["show-ref", "--verify", "refs/heads/main"]);
     defaultBranch = hasMain ? "main" : "master";
   }
 
@@ -176,15 +193,15 @@ export function getGitContext(): GitContext {
 export function runGitDiff(diffType: DiffType, defaultBranch = "main"): { patch: string; label: string } {
   switch (diffType) {
     case "uncommitted":
-      return { patch: git("diff HEAD --src-prefix=a/ --dst-prefix=b/"), label: "Uncommitted changes" };
+      return { patch: git(["diff", "HEAD", "--src-prefix=a/", "--dst-prefix=b/"]), label: "Uncommitted changes" };
     case "staged":
-      return { patch: git("diff --staged --src-prefix=a/ --dst-prefix=b/"), label: "Staged changes" };
+      return { patch: git(["diff", "--staged", "--src-prefix=a/", "--dst-prefix=b/"]), label: "Staged changes" };
     case "unstaged":
-      return { patch: git("diff --src-prefix=a/ --dst-prefix=b/"), label: "Unstaged changes" };
+      return { patch: git(["diff", "--src-prefix=a/", "--dst-prefix=b/"]), label: "Unstaged changes" };
     case "last-commit":
-      return { patch: git("diff HEAD~1..HEAD --src-prefix=a/ --dst-prefix=b/"), label: "Last commit" };
+      return { patch: git(["diff", "HEAD~1..HEAD", "--src-prefix=a/", "--dst-prefix=b/"]), label: "Last commit" };
     case "branch":
-      return { patch: git(`diff ${defaultBranch}..HEAD --src-prefix=a/ --dst-prefix=b/`), label: `Changes vs ${defaultBranch}` };
+      return { patch: git(["diff", `${defaultBranch}..HEAD`, "--src-prefix=a/", "--dst-prefix=b/"]), label: `Changes vs ${defaultBranch}` };
     default:
       return { patch: "", label: "Unknown diff type" };
   }
@@ -212,6 +229,7 @@ export function startReviewServer(options: {
   const decisionPromise = new Promise<{ feedback: string }>((r) => {
     resolveDecision = r;
   });
+  let resolved = false;
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url!, `http://localhost`);
@@ -238,6 +256,8 @@ export function startReviewServer(options: {
       currentDiffType = newType;
       json(res, { rawPatch: currentPatch, gitRef: currentGitRef, diffType: currentDiffType });
     } else if (url.pathname === "/api/feedback" && req.method === "POST") {
+      if (resolved) { json(res, { error: "Already resolved" }, 409); return; }
+      resolved = true;
       const body = await parseBody(req);
       resolveDecision({ feedback: (body.feedback as string) || "" });
       json(res, { ok: true });
@@ -281,6 +301,7 @@ export function startAnnotateServer(options: {
   const decisionPromise = new Promise<{ feedback: string }>((r) => {
     resolveDecision = r;
   });
+  let resolved = false;
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url!, `http://localhost`);
@@ -293,6 +314,8 @@ export function startAnnotateServer(options: {
         filePath: options.filePath,
       });
     } else if (url.pathname === "/api/feedback" && req.method === "POST") {
+      if (resolved) { json(res, { error: "Already resolved" }, 409); return; }
+      resolved = true;
       const body = await parseBody(req);
       resolveDecision({ feedback: (body.feedback as string) || "" });
       json(res, { ok: true });

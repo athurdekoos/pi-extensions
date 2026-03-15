@@ -112,6 +112,12 @@ describe("getContextMessage", () => {
   it("returns null for executing with no steps", () => {
     expect(getContextMessage("executing", [])).toBeNull();
   });
+
+  it("returns brainstorming message for brainstorming phase", () => {
+    const msg = getContextMessage("brainstorming", []);
+    expect(msg).toContain("Brainstorming");
+    expect(msg).toContain("submit_spec");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -159,6 +165,12 @@ describe("getStatusDisplay", () => {
     const status = getStatusDisplay("executing", []);
     expect(status.text).toBe("⏸ plan");
   });
+
+  it("shows brainstorm status for brainstorming phase", () => {
+    const status = getStatusDisplay("brainstorming", []);
+    expect(status.key).toBe("pi-plan");
+    expect(status.text).toBe("💡 brainstorm");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -187,6 +199,12 @@ describe("getWidgetLines", () => {
 
   it("returns undefined for executing with no items", () => {
     expect(getWidgetLines("executing", [])).toBeUndefined();
+  });
+
+  it("returns brainstorming widget for brainstorming phase", () => {
+    const lines = getWidgetLines("brainstorming", []);
+    expect(lines).toHaveLength(1);
+    expect(lines![0]).toContain("Brainstorming");
   });
 });
 
@@ -242,5 +260,43 @@ describe("serialization", () => {
     expect(initial.phase).toBe("inactive");
     expect(initial.todoItems).toEqual([]);
     expect(initial.repoRoot).toBeNull();
+    expect(initial.tddStepTestWritten).toBe(false);
+    expect(initial.worktreeActive).toBe(false);
+    expect(initial.worktreePath).toBeNull();
+    expect(initial.brainstormSpecPath).toBeNull();
+  });
+
+  it("round-trips new fields through serialize/restore", () => {
+    const original = createInitialState();
+    original.phase = "executing";
+    original.repoRoot = "/repo";
+    original.enforcementActive = true;
+    original.tddStepTestWritten = true;
+    original.worktreeActive = true;
+    original.worktreePath = "/repo/.worktrees/auth";
+    original.brainstormSpecPath = ".pi/specs/auth-spec.md";
+
+    const persisted = serializeState(original);
+    const restored = restoreState(persisted, "/repo");
+
+    expect(restored.tddStepTestWritten).toBe(true);
+    expect(restored.worktreeActive).toBe(true);
+    expect(restored.worktreePath).toBe("/repo/.worktrees/auth");
+    expect(restored.brainstormSpecPath).toBe(".pi/specs/auth-spec.md");
+  });
+
+  it("restores new fields with defaults when missing from persisted state", () => {
+    // Simulate old persisted state without new fields
+    const oldPersisted = {
+      phase: "executing" as const,
+      todoItems: [],
+      enforcementActive: true,
+    };
+
+    const restored = restoreState(oldPersisted, "/repo");
+    expect(restored.tddStepTestWritten).toBe(false);
+    expect(restored.worktreeActive).toBe(false);
+    expect(restored.worktreePath).toBeNull();
+    expect(restored.brainstormSpecPath).toBeNull();
   });
 });

@@ -1,40 +1,33 @@
 /**
  * index.ts — Command registration, Pi API bridge, and lifecycle hook wiring.
  *
- * Owns: /plan (toggle + document workflow), /plan-debug, /todos command
- *       registration. Bridges Pi's ExtensionAPI to the orchestration layer's
- *       PlanUI interface. Wires enforcement lifecycle hooks (input,
- *       session_start, before_agent_start, context, turn_end, agent_end)
- *       to the auto-plan state machine and harness layer.
+ * Owns: /plan (toggle + document workflow), /plan-debug, /todos, /tdd,
+ *       /plan-review, /plan-annotate, /plan-finish command registration. Bridges Pi's
+ *       ExtensionAPI to the orchestration layer's PlanUI interface. Wires
+ *       lifecycle hooks to extracted handler modules (tools.ts, hooks.ts).
  *
  * Does NOT own: Business logic, state detection, file I/O, plan generation,
  *               archive logic, enforcement decisions (auto-plan.ts),
- *               input evaluation (harness.ts).
+ *               input evaluation (harness.ts), tool handlers (tools.ts),
+ *               hook handlers (hooks.ts).
  *
  * Invariants:
  *   - This file is a bridge. Enforcement decisions come from auto-plan.ts
  *     and harness.ts.
+ *   - Tool execute logic lives in tools.ts; hook logic in hooks.ts.
  *   - State is always detected via repo.ts (detectPlanState / detectRepoRoot).
  *   - /plan is a toggle: ON activates enforcement, OFF deactivates it.
- *   - When enforcement is ON and a plan exists, /plan shows the document
- *     workflow menu (resume/replace/revisit).
  *   - The input hook never blocks — it only transforms or passes through.
  */
 
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { AssistantMessage, TextContent } from "@mariozechner/pi-ai";
 import { Type } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { resolve } from "node:path";
 import { detectPlanState, detectRepoRoot, CURRENT_PLAN_REL } from "./repo.js";
 import { handlePlan, handlePlanDebug, type PlanUI } from "./orchestration.js";
 import { loadConfig } from "./config.js";
-import { readCurrentPlan, archivePlan, forceWriteCurrentPlan, updateIndex } from "./archive.js";
-import { CURRENT_PLAN_PLACEHOLDER } from "./defaults.js";
-import { markCompletedSteps } from "./mode-utils.js";
-import { evaluateInput, evaluateHarnessCommand } from "./harness.js";
 import {
-  handlePlanSubmission,
   handleCodeReview,
   handleAnnotation,
   hasPlanReviewUI,
@@ -43,30 +36,25 @@ import {
 import {
   createInitialState,
   computePhase,
-  getContextMessage,
   getStatusDisplay,
   getWidgetLines,
   extractStepsFromCurrentPlan,
   serializeState,
-  restoreState,
   type AutoPlanState,
-  type PersistedAutoState,
 } from "./auto-plan.js";
-
-// ---------------------------------------------------------------------------
-// Type helpers
-// ---------------------------------------------------------------------------
-
-function isAssistantMessage(m: AgentMessage): m is AssistantMessage {
-  return m.role === "assistant" && Array.isArray(m.content);
-}
-
-function getTextContent(message: AssistantMessage): string {
-  return message.content
-    .filter((block): block is TextContent => block.type === "text")
-    .map((block) => block.text)
-    .join("\n");
-}
+import { executeSubmitPlan, executeSubmitSpec } from "./tools.js";
+import {
+  handleToolCallGate,
+  handleInput,
+  handleContextFilter,
+  handleBeforeAgentStart,
+  handleTurnEnd,
+  handleAgentEnd,
+  handleSessionStart,
+} from "./hooks.js";
+import { executeFinishing, detectBaseBranch, type FinishContext } from "./finish.js";
+import { readWorktreeState } from "./worktree.js";
+import { readCurrentPlan } from "./archive.js";
 
 // ---------------------------------------------------------------------------
 // Bridge Pi's ctx.ui to PlanUI
@@ -95,27 +83,29 @@ function bridgeUI(ctx: {
 export default function (pi: ExtensionAPI) {
   // ----- Mutable state -----
   let state: AutoPlanState = createInitialState();
+  let config: { config: import("./config.js").PiPlanConfig; warnings: string[]; source: string } | null = null;
 
   // ----- UI helpers -----
 
-  function applyUI(ctx: ExtensionContext): void {
+  function applyUI(ctx: ExtensionContext | { ui: ExtensionContext["ui"] }): void {
     const status = getStatusDisplay(state.phase, state.todoItems);
-    ctx.ui.setStatus(status.key, status.text
+    const uiCtx = ctx.ui as ExtensionContext["ui"];
+    uiCtx.setStatus(status.key, status.text
       ? (state.phase === "executing"
-        ? ctx.ui.theme.fg("accent", status.text)
-        : ctx.ui.theme.fg("warning", status.text))
+        ? uiCtx.theme.fg("accent", status.text)
+        : uiCtx.theme.fg("warning", status.text))
       : undefined);
 
     const widgetLines = getWidgetLines(state.phase, state.todoItems);
     if (widgetLines) {
       const themed = widgetLines.map((line) =>
         line.includes("☑")
-          ? ctx.ui.theme.fg("success", "☑ ") + ctx.ui.theme.fg("muted", ctx.ui.theme.strikethrough(line.replace(/\s*☑\s*~~(.+)~~/, "$1")))
-          : ctx.ui.theme.fg("muted", "☐ ") + line.replace(/\s*☐\s*/, ""),
+          ? uiCtx.theme.fg("success", "☑ ") + uiCtx.theme.fg("muted", uiCtx.theme.strikethrough(line.replace(/\s*☑\s*~~(.+)~~/, "$1")))
+          : uiCtx.theme.fg("muted", "☐ ") + line.replace(/\s*☐\s*/, ""),
       );
-      ctx.ui.setWidget("pi-plan", themed);
+      uiCtx.setWidget("pi-plan", themed);
     } else {
-      ctx.ui.setWidget("pi-plan", undefined);
+      uiCtx.setWidget("pi-plan", undefined);
     }
   }
 
@@ -130,6 +120,40 @@ export default function (pi: ExtensionAPI) {
       state.repoRoot = planState.repoRoot;
     }
   }
+
+  function tryTransitionToExecuting(): void {
+    if (state.phase === "has-plan" && state.repoRoot) {
+      const steps = extractStepsFromCurrentPlan(state.repoRoot);
+      if (steps.length > 0) {
+        state.todoItems = steps;
+        state.phase = "executing";
+      }
+    }
+  }
+
+  // ----- Shared deps for tools and hooks -----
+
+  const toolDeps = {
+    get state() { return state; },
+    get config() { return config; },
+    applyUI,
+    persistState,
+    exec: (cmd: string, args: string[], opts?: { timeout?: number }) => pi.exec(cmd, args, opts),
+  };
+
+  const hookDeps = {
+    get state() { return state; },
+    get config() { return config; },
+    set config(v: typeof config) { config = v; },
+    applyUI,
+    persistState,
+    refreshPhase,
+    exec: (cmd: string, args: string[], opts?: { timeout?: number }) => pi.exec(cmd, args, opts),
+    sendMessage: (msg: { customType: string; content: string; display: boolean }, opts: { triggerTurn: boolean }) => pi.sendMessage(msg, opts),
+    getFlag: (name: string) => pi.getFlag(name),
+    detectPlanState: () => detectPlanState(pi),
+    detectRepoRoot: () => detectRepoRoot(pi),
+  };
 
   // ----- Flags -----
 
@@ -162,29 +186,38 @@ export default function (pi: ExtensionAPI) {
           return;
         }
 
-        // If not initialized, offer to initialize (reuse orchestration logic)
         if (state.phase === "not-initialized") {
           await handlePlan(planState, args, bridgeUI(ctx));
-          // Re-check after potential initialization
           await refreshPhase();
         }
 
-        // If initialized with no plan, offer to create one
         if (state.phase === "needs-plan") {
+          config = config ?? (state.repoRoot ? loadConfig(state.repoRoot) : null);
+          const currentConfig = config?.config;
+
+          if (currentConfig?.brainstormEnabled && ctx.hasUI) {
+            const wantBrainstorm = await ctx.ui.confirm(
+              "Brainstorm first?",
+              "Would you like to brainstorm/design before creating the plan?",
+            );
+
+            if (wantBrainstorm) {
+              state.phase = "brainstorming";
+              ctx.ui.notify("Brainstorming phase active. Write a spec to .pi/specs/ and use submit_spec when ready.", "info");
+              applyUI(ctx);
+              persistState();
+              return;
+            }
+          }
+
           ctx.ui.notify("Plan enforcement ON. No plan exists yet — create one with /plan.", "info");
-          // Trigger plan creation flow
           const freshState = await detectPlanState(pi);
           await handlePlan(freshState, args, bridgeUI(ctx));
           await refreshPhase();
         }
 
-        // If a plan exists, extract steps for tracking
-        if (state.phase === "has-plan" && state.repoRoot) {
-          const steps = extractStepsFromCurrentPlan(state.repoRoot);
-          if (steps.length > 0) {
-            state.todoItems = steps;
-            state.phase = "executing";
-          }
+        tryTransitionToExecuting();
+        if (state.phase === "has-plan" || state.phase === "executing") {
           ctx.ui.notify("Plan enforcement ON.", "info");
         }
 
@@ -194,7 +227,6 @@ export default function (pi: ExtensionAPI) {
       }
 
       // --- Already ON: check for toggle OFF or document workflow ---
-      // If user runs /plan with no args and enforcement is on, show menu
       if (args.trim().length === 0) {
         const hasActivePlan = state.phase === "has-plan" || state.phase === "executing";
 
@@ -220,49 +252,23 @@ export default function (pi: ExtensionAPI) {
           const freshState = await detectPlanState(pi);
           await handlePlan(freshState, "", bridgeUI(ctx));
           await refreshPhase();
-
-          if (state.phase === "has-plan" && state.repoRoot) {
-            const steps = extractStepsFromCurrentPlan(state.repoRoot);
-            if (steps.length > 0) {
-              state.todoItems = steps;
-              state.phase = "executing";
-            }
-          }
-
+          tryTransitionToExecuting();
           applyUI(ctx);
           persistState();
           return;
         }
 
-        // Delegate to orchestration for resume/replace/revisit
         await handlePlan(planState, "", bridgeUI(ctx));
         await refreshPhase();
-
-        if (state.phase === "has-plan" && state.repoRoot) {
-          const steps = extractStepsFromCurrentPlan(state.repoRoot);
-          if (steps.length > 0) {
-            state.todoItems = steps;
-            state.phase = "executing";
-          }
-        }
-
+        tryTransitionToExecuting();
         applyUI(ctx);
         persistState();
         return;
       }
 
-      // /plan <goal text> with enforcement on — create/replace plan with inline goal
       await handlePlan(planState, args, bridgeUI(ctx));
       await refreshPhase();
-
-      if (state.phase === "has-plan" && state.repoRoot) {
-        const steps = extractStepsFromCurrentPlan(state.repoRoot);
-        if (steps.length > 0) {
-          state.todoItems = steps;
-          state.phase = "executing";
-        }
-      }
-
+      tryTransitionToExecuting();
       applyUI(ctx);
       persistState();
     },
@@ -291,103 +297,27 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ----- submit_plan tool -----
-
-  pi.registerTool({
-    name: "submit_plan",
-    label: "Submit Plan for Review",
-    description:
-      "Submit the current plan for user review in a browser-based UI. " +
-      "Call this after drafting or revising the plan in .pi/plans/current.md. " +
-      "The user will review the plan visually and can approve, deny with feedback, or annotate it. " +
-      "If denied, use the edit tool to make targeted revisions, then call this again.",
-    parameters: Type.Object({
-      summary: Type.Optional(
-        Type.String({ description: "Brief summary of the plan for the user's review" }),
-      ),
-    }),
-
-    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-      // Guard: must have enforcement active and a plan
-      if (state.phase !== "has-plan" && state.phase !== "executing") {
-        return {
-          content: [{ type: "text", text: "Error: No active plan to submit. Create a plan first with /plan." }],
-          details: { approved: false },
-        };
-      }
-
+  pi.registerCommand("tdd", {
+    description: "Toggle TDD enforcement or show compliance summary",
+    handler: async (_args, ctx) => {
       if (!state.repoRoot) {
-        return {
-          content: [{ type: "text", text: "Error: No repository root detected." }],
-          details: { approved: false },
-        };
+        ctx.ui.notify("No repository detected.", "error");
+        return;
       }
 
-      if (!hasPlanReviewUI()) {
-        return {
-          content: [{ type: "text", text: "Error: Plan review UI not available. Ensure assets/plan-review.html is built." }],
-          details: { approved: false },
-        };
+      const currentConfig = config?.config ?? loadConfig(state.repoRoot).config;
+      const newValue = !currentConfig.tddEnforcement;
+
+      if (config) {
+        config.config.tddEnforcement = newValue;
       }
 
-      try {
-        const config = loadConfig(state.repoRoot);
-        const result = await handlePlanSubmission(state.repoRoot, config.config, ctx);
-
-        if (result.approved) {
-          // Transition to executing
-          if (state.repoRoot) {
-            const steps = extractStepsFromCurrentPlan(state.repoRoot);
-            if (steps.length > 0) {
-              state.todoItems = steps;
-              state.phase = "executing";
-            }
-          }
-          applyUI(ctx);
-          persistState();
-
-          const doneMsg = state.todoItems.length > 0
-            ? " After completing each step, include [DONE:n] in your response where n is the step number."
-            : "";
-
-          if (result.feedback) {
-            return {
-              content: [{
-                type: "text",
-                text: `Plan approved with notes! Execute the plan in .pi/plans/current.md.${doneMsg}\n\n## Implementation Notes\n\n${result.feedback}\n\nProceed with implementation, incorporating these notes where applicable.`,
-              }],
-              details: { approved: true, feedback: result.feedback },
-            };
-          }
-
-          return {
-            content: [{
-              type: "text",
-              text: `Plan approved. Execute the plan in .pi/plans/current.md.${doneMsg}`,
-            }],
-            details: { approved: true },
-          };
-        }
-
-        // Denied
-        const feedbackText = result.feedback || "Plan rejected. Please revise.";
-        return {
-          content: [{
-            type: "text",
-            text: `Plan not approved.\n\nUser feedback: ${feedbackText}\n\nRevise the plan:\n1. Read .pi/plans/current.md to see the current plan.\n2. Use the edit tool to make targeted changes addressing the feedback — do not rewrite the entire file.\n3. Call submit_plan again when ready.`,
-          }],
-          details: { approved: false, feedback: feedbackText },
-        };
-      } catch (err) {
-        return {
-          content: [{ type: "text", text: `Error during plan review: ${String(err)}` }],
-          details: { approved: false },
-        };
-      }
+      ctx.ui.notify(
+        `TDD enforcement ${newValue ? "ON" : "OFF"}.${state.tddStepTestWritten ? " (test written this step)" : ""}`,
+        "info",
+      );
     },
   });
-
-  // ----- /plan-review command -----
 
   pi.registerCommand("plan-review", {
     description: "Open interactive code review for current git changes in a browser UI",
@@ -412,8 +342,6 @@ export default function (pi: ExtensionAPI) {
       }
     },
   });
-
-  // ----- /plan-annotate command -----
 
   pi.registerCommand("plan-annotate", {
     description: "Open a markdown file in the browser-based annotation UI",
@@ -448,186 +376,136 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ----- Lifecycle hooks -----
-
-  // Write-gating during planning: block writes outside current.md when enforcement is active
-  pi.on("tool_call", async (event, ctx) => {
-    // Only gate during has-plan or executing phases
-    if (state.phase !== "has-plan" && state.phase !== "needs-plan") return;
-
-    const toolName = event.toolName;
-    if (toolName !== "write" && toolName !== "edit") return;
-
-    // In "needs-plan" phase, only allow writes to current.md
-    if (state.phase === "needs-plan" && state.repoRoot) {
-      const targetPath = resolve(ctx.cwd, event.input.path as string);
-      const allowedPath = resolve(state.repoRoot, CURRENT_PLAN_REL);
-      if (targetPath !== allowedPath) {
-        return {
-          block: true,
-          reason: `Plan enforcement: writes are restricted to .pi/plans/current.md during planning. Blocked: ${event.input.path}`,
-        };
+  pi.registerCommand("plan-finish", {
+    description: "Manually trigger the branch finishing workflow",
+    handler: async (_args, ctx) => {
+      if (!state.repoRoot) {
+        ctx.ui.notify("No repository detected.", "error");
+        return;
       }
-    }
-  });
 
-  // Harness-level input interception
-  pi.on("input", async (event) => {
-    // Never intercept extension-injected messages
-    if (event.source === "extension") return { action: "continue" };
+      const currentConfig = config?.config ?? loadConfig(state.repoRoot).config;
+      const worktreeState = readWorktreeState(state.repoRoot, currentConfig.worktreeStateDir);
 
-    // Check harness command registry first
-    const cmdResult = evaluateHarnessCommand(event.text, state.phase, state.repoRoot);
-    if (cmdResult.matched) return cmdResult.result;
+      if (!worktreeState || !state.worktreeActive) {
+        ctx.ui.notify("No active worktree. /plan-finish requires an active worktree.", "error");
+        return;
+      }
 
-    // Phase-based input evaluation
-    return evaluateInput(state.phase, event.text);
-  });
+      const planContent = readCurrentPlan(state.repoRoot);
+      if (!planContent) {
+        ctx.ui.notify("No current plan found.", "error");
+        return;
+      }
 
-  // Filter stale plan enforcement context messages when inactive
-  pi.on("context", async (event) => {
-    if (state.phase !== "inactive") return;
-
-    return {
-      messages: event.messages.filter((m) => {
-        const msg = m as AgentMessage & { customType?: string };
-        if (msg.customType === "pi-plan-context") return false;
-        if (msg.role !== "user") return true;
-
-        const content = msg.content;
-        if (typeof content === "string") {
-          return !content.includes("[PLAN ENFORCEMENT ACTIVE") && !content.includes("[CONTEXT: Plan enforcement");
-        }
-        if (Array.isArray(content)) {
-          return !content.some(
-            (c) => c.type === "text" && ((c as TextContent).text?.includes("[PLAN ENFORCEMENT ACTIVE") || (c as TextContent).text?.includes("[CONTEXT: Plan enforcement")),
-          );
-        }
-        return true;
-      }),
-    };
-  });
-
-  // Inject context message before agent starts
-  pi.on("before_agent_start", async () => {
-    if (state.phase === "inactive") return;
-
-    // Re-check state in case user ran /plan or edited files
-    await refreshPhase();
-
-    const config = state.repoRoot ? loadConfig(state.repoRoot) : null;
-    const injectContext = config?.config.injectPlanContext ?? true;
-    if (!injectContext) return;
-
-    const message = getContextMessage(state.phase, state.todoItems);
-    if (!message) return;
-
-    return {
-      message: {
-        customType: "pi-plan-context",
-        content: message,
-        display: false,
-      },
-    };
-  });
-
-  // Track [DONE:n] markers during execution
-  pi.on("turn_end", async (event, ctx) => {
-    if (state.phase !== "executing" || state.todoItems.length === 0) return;
-    if (!isAssistantMessage(event.message)) return;
-
-    const text = getTextContent(event.message);
-    if (markCompletedSteps(text, state.todoItems) > 0) {
+      // Set finishing phase
+      const previousPhase = state.phase;
+      state.phase = "finishing";
       applyUI(ctx);
       persistState();
-    }
-  });
 
-  // Check for plan completion after agent finishes
-  pi.on("agent_end", async (_event, ctx) => {
-    if (state.phase !== "executing" || state.todoItems.length === 0) return;
+      const baseBranch = await detectBaseBranch(state.repoRoot, hookDeps.exec);
+      const finishCtx: FinishContext = {
+        repoRoot: state.repoRoot,
+        worktreePath: worktreeState.path,
+        branch: worktreeState.branch,
+        baseBranch,
+        stateDir: currentConfig.worktreeStateDir,
+      };
 
-    if (state.todoItems.every((t) => t.completed)) {
-      const completedList = state.todoItems.map((t) => `~~${t.text}~~`).join("\n");
-      pi.sendMessage(
-        { customType: "pi-plan-complete", content: `**Plan Complete!** ✓\n\n${completedList}`, display: true },
-        { triggerTurn: false },
+      const result = await executeFinishing(
+        finishCtx,
+        hookDeps.exec,
+        bridgeUI(ctx),
+        currentConfig,
+        planContent,
       );
 
-      // Offer to archive
-      if (ctx.hasUI && state.repoRoot) {
-        const shouldArchive = await ctx.ui.confirm(
-          "Archive completed plan?",
-          "The plan is complete. Archive it and clear current.md?",
-        );
-
-        if (shouldArchive) {
-          const config = loadConfig(state.repoRoot);
-
-          const content = readCurrentPlan(state.repoRoot);
-          if (content) {
-            archivePlan(state.repoRoot, content, new Date(), {
-              archiveDir: config.config.archiveDir,
-              archiveFilenameStyle: config.config.archiveFilenameStyle,
-            });
-            forceWriteCurrentPlan(state.repoRoot, CURRENT_PLAN_PLACEHOLDER);
-            updateIndex(state.repoRoot, { archiveDir: config.config.archiveDir });
-            ctx.ui.notify("Plan archived.", "success");
-          }
+      if (result) {
+        if (result.success) {
+          ctx.ui.notify(result.message, "success");
+        } else {
+          ctx.ui.notify(result.message + (result.error ? `: ${result.error}` : ""), "error");
         }
+        state.worktreeActive = false;
+        state.worktreePath = null;
+      } else {
+        // Cancelled — restore previous phase
+        state.phase = previousPhase;
       }
 
-      // Reset execution state
-      state.todoItems = [];
       await refreshPhase();
       applyUI(ctx);
       persistState();
-    }
+    },
   });
 
-  // Session start: restore persisted state, detect filesystem state, apply UI
+  // ----- Tools -----
+
+  pi.registerTool({
+    name: "submit_plan",
+    label: "Submit Plan for Review",
+    description:
+      "Submit the current plan for user review in a browser-based UI. " +
+      "Call this after drafting or revising the plan in .pi/plans/current.md. " +
+      "The user will review the plan visually and can approve, deny with feedback, or annotate it. " +
+      "If denied, use the edit tool to make targeted revisions, then call this again.",
+    parameters: Type.Object({
+      summary: Type.Optional(
+        Type.String({ description: "Brief summary of the plan for the user's review" }),
+      ),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      return executeSubmitPlan(params as Record<string, unknown>, ctx, toolDeps);
+    },
+  });
+
+  pi.registerTool({
+    name: "submit_spec",
+    label: "Submit Spec for Review",
+    description:
+      "Submit a design spec from .pi/specs/ for user review. " +
+      "Call this during the brainstorming phase after writing a spec document.",
+    parameters: Type.Object({
+      specPath: Type.String({ description: "Relative path to the spec file in .pi/specs/" }),
+      summary: Type.Optional(
+        Type.String({ description: "Brief summary of the spec" }),
+      ),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      return executeSubmitSpec(params as Record<string, unknown>, ctx, toolDeps);
+    },
+  });
+
+  // ----- Lifecycle hooks -----
+
+  pi.on("tool_call", async (event, ctx) => {
+    return handleToolCallGate(event, ctx.cwd, hookDeps);
+  });
+
+  pi.on("input", async (event) => {
+    return handleInput(event.text, event.source, hookDeps);
+  });
+
+  pi.on("context", async (event) => {
+    const filtered = handleContextFilter(event.messages as AgentMessage[], state.phase);
+    if (filtered) return { messages: filtered };
+  });
+
+  pi.on("before_agent_start", async () => {
+    const msg = await handleBeforeAgentStart(hookDeps);
+    if (msg) return { message: msg };
+  });
+
+  pi.on("turn_end", async (event, ctx) => {
+    handleTurnEnd(event.message as AgentMessage, ctx, hookDeps);
+  });
+
+  pi.on("agent_end", async (_event, ctx) => {
+    await handleAgentEnd(ctx, hookDeps);
+  });
+
   pi.on("session_start", async (_event, ctx) => {
-    const repoRoot = await detectRepoRoot(pi);
-
-    // Restore persisted state if available
-    const entries = ctx.sessionManager.getEntries();
-    const persistedEntry = entries
-      .filter((e: { type: string; customType?: string }) => e.type === "custom" && e.customType === "pi-plan-auto")
-      .pop() as { data?: PersistedAutoState } | undefined;
-
-    if (persistedEntry?.data) {
-      state = restoreState(persistedEntry.data, repoRoot);
-    } else {
-      state.repoRoot = repoRoot;
-    }
-
-    // Check --plan flag for fresh sessions (no persisted state)
-    if (!persistedEntry?.data && pi.getFlag("plan") === true) {
-      state.enforcementActive = true;
-    }
-
-    // Always re-detect from filesystem (persisted state may be stale)
-    if (state.enforcementActive) {
-      // review-pending is transient — if session restarts, the browser server is gone
-      if (state.phase === "review-pending") {
-        state.phase = "has-plan";
-      }
-
-      await refreshPhase();
-
-      // Re-scan messages for [DONE:n] if we were executing
-      if (state.phase === "executing" && state.todoItems.length > 0) {
-        const messages: AssistantMessage[] = [];
-        for (const entry of entries) {
-          if (entry.type === "message" && "message" in entry && isAssistantMessage(entry.message as AgentMessage)) {
-            messages.push(entry.message as AssistantMessage);
-          }
-        }
-        const allText = messages.map(getTextContent).join("\n");
-        markCompletedSteps(allText, state.todoItems);
-      }
-    }
-
-    applyUI(ctx);
+    await handleSessionStart(ctx, hookDeps);
   });
 }

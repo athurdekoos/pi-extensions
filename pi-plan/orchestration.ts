@@ -290,11 +290,12 @@ async function ensureTemplateUsable(
  * Build PlanInput from goal, repoRoot, and config.
  * Passes through currentStateTemplate from config if set.
  */
-function buildPlanInput(goal: string, repoRoot: string, config: PiPlanConfig): PlanInput {
+function buildPlanInput(goal: string, repoRoot: string, config: PiPlanConfig, specPath?: string | null): PlanInput {
   return {
     goal,
     repoRoot,
     currentStateTemplate: config.currentStateTemplate ?? undefined,
+    specPath: specPath ?? undefined,
   };
 }
 

@@ -35,6 +35,15 @@ import {
 import { openBrowser } from "./browser.js";
 
 // ---------------------------------------------------------------------------
+// Browser settle delay
+// ---------------------------------------------------------------------------
+
+const BROWSER_SETTLE_MS = 1500;
+function browserSettle(): Promise<void> {
+  return new Promise((r) => setTimeout(r, BROWSER_SETTLE_MS));
+}
+
+// ---------------------------------------------------------------------------
 // HTML asset loading
 // ---------------------------------------------------------------------------
 
@@ -130,7 +139,7 @@ export async function handlePlanSubmission(
   const result = await server.waitForDecision();
 
   // Brief delay for browser to process, then stop server
-  await new Promise((r) => setTimeout(r, 1500));
+  await browserSettle();
   server.stop();
 
   // Write review record
@@ -181,7 +190,7 @@ export async function handleCodeReview(
   openBrowser(server.url);
 
   const result = await server.waitForDecision();
-  await new Promise((r) => setTimeout(r, 1500));
+  await browserSettle();
   server.stop();
 
   return result;
@@ -226,7 +235,7 @@ export async function handleAnnotation(
   openBrowser(server.url);
 
   const result = await server.waitForDecision();
-  await new Promise((r) => setTimeout(r, 1500));
+  await browserSettle();
   server.stop();
 
   return result;

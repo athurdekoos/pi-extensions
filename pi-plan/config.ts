@@ -50,6 +50,24 @@ export interface PiPlanConfig {
   reviewDir: string;
   /** Step format for plan steps: "numbered" (1. Step) or "checkbox" (- [ ] Step) or "both" */
   stepFormat: "numbered" | "checkbox" | "both";
+  /** Enable TDD enforcement during execution (test before prod writes) */
+  tddEnforcement: boolean;
+  /** Glob patterns that identify test files */
+  testFilePatterns: string[];
+  /** Enable brainstorming/design phase before planning */
+  brainstormEnabled: boolean;
+  /** Enable git worktree isolation for plan execution */
+  worktreeEnabled: boolean;
+  /** Relative path for spec directory (from repo root) */
+  specDir: string;
+  /** Relative path for TDD compliance log directory (from repo root) */
+  tddLogDir: string;
+  /** Relative path for worktree state directory (from repo root) */
+  worktreeStateDir: string;
+  /** Default finishing action: always ask if null */
+  defaultFinishAction: "merge" | "pr" | "keep" | "discard" | null;
+  /** PR body template. Supports {{BRANCH}} and {{PLAN_TITLE}} placeholders */
+  prTemplate: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,6 +87,15 @@ export const DEFAULT_CONFIG: Readonly<PiPlanConfig> = {
   injectPlanContext: true,
   reviewDir: ".pi/plans/reviews",
   stepFormat: "both",
+  tddEnforcement: true,
+  testFilePatterns: ["*.test.*", "*.spec.*", "__tests__/**", "test/**", "tests/**"],
+  brainstormEnabled: true,
+  worktreeEnabled: true,
+  specDir: ".pi/specs",
+  tddLogDir: ".pi/tdd",
+  worktreeStateDir: ".pi/worktrees",
+  defaultFinishAction: null,
+  prTemplate: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -85,6 +112,7 @@ const VALID_ARCHIVE_FILENAME_STYLES = new Set(["date-slug", "date-only"]);
 const VALID_ARCHIVE_COLLISION_STRATEGIES = new Set(["counter"]);
 const VALID_DEBUG_LOG_FILENAME_STYLES = new Set(["timestamp"]);
 const VALID_STEP_FORMATS = new Set(["numbered", "checkbox", "both"]);
+const VALID_FINISH_ACTIONS = new Set(["merge", "pr", "keep", "discard"]);
 
 export interface ConfigLoadResult {
   config: PiPlanConfig;
@@ -260,6 +288,106 @@ export function loadConfig(repoRoot: string): ConfigLoadResult {
       config.stepFormat = obj.stepFormat as PiPlanConfig["stepFormat"];
     } else {
       warnings.push(`Invalid stepFormat — using default "${DEFAULT_CONFIG.stepFormat}".`);
+    }
+  }
+
+  // tddEnforcement
+  if ("tddEnforcement" in obj) {
+    if (typeof obj.tddEnforcement === "boolean") {
+      config.tddEnforcement = obj.tddEnforcement;
+    } else {
+      warnings.push(`Invalid tddEnforcement — using default ${DEFAULT_CONFIG.tddEnforcement}.`);
+    }
+  }
+
+  // testFilePatterns
+  if ("testFilePatterns" in obj) {
+    if (Array.isArray(obj.testFilePatterns) && obj.testFilePatterns.every((p: unknown) => typeof p === "string")) {
+      config.testFilePatterns = obj.testFilePatterns as string[];
+    } else {
+      warnings.push(`Invalid testFilePatterns — using default.`);
+    }
+  }
+
+  // brainstormEnabled
+  if ("brainstormEnabled" in obj) {
+    if (typeof obj.brainstormEnabled === "boolean") {
+      config.brainstormEnabled = obj.brainstormEnabled;
+    } else {
+      warnings.push(`Invalid brainstormEnabled — using default ${DEFAULT_CONFIG.brainstormEnabled}.`);
+    }
+  }
+
+  // worktreeEnabled
+  if ("worktreeEnabled" in obj) {
+    if (typeof obj.worktreeEnabled === "boolean") {
+      config.worktreeEnabled = obj.worktreeEnabled;
+    } else {
+      warnings.push(`Invalid worktreeEnabled — using default ${DEFAULT_CONFIG.worktreeEnabled}.`);
+    }
+  }
+
+  // specDir
+  if ("specDir" in obj) {
+    if (typeof obj.specDir === "string" && obj.specDir.trim().length > 0) {
+      const trimmed = obj.specDir.trim();
+      if (trimmed.includes("..")) {
+        warnings.push(`specDir contains ".." (path traversal) — using default "${DEFAULT_CONFIG.specDir}".`);
+      } else {
+        config.specDir = trimmed;
+      }
+    } else {
+      warnings.push(`Invalid specDir — using default "${DEFAULT_CONFIG.specDir}".`);
+    }
+  }
+
+  // tddLogDir
+  if ("tddLogDir" in obj) {
+    if (typeof obj.tddLogDir === "string" && obj.tddLogDir.trim().length > 0) {
+      const trimmed = obj.tddLogDir.trim();
+      if (trimmed.includes("..")) {
+        warnings.push(`tddLogDir contains ".." (path traversal) — using default "${DEFAULT_CONFIG.tddLogDir}".`);
+      } else {
+        config.tddLogDir = trimmed;
+      }
+    } else {
+      warnings.push(`Invalid tddLogDir — using default "${DEFAULT_CONFIG.tddLogDir}".`);
+    }
+  }
+
+  // worktreeStateDir
+  if ("worktreeStateDir" in obj) {
+    if (typeof obj.worktreeStateDir === "string" && obj.worktreeStateDir.trim().length > 0) {
+      const trimmed = obj.worktreeStateDir.trim();
+      if (trimmed.includes("..")) {
+        warnings.push(`worktreeStateDir contains ".." (path traversal) — using default "${DEFAULT_CONFIG.worktreeStateDir}".`);
+      } else {
+        config.worktreeStateDir = trimmed;
+      }
+    } else {
+      warnings.push(`Invalid worktreeStateDir — using default "${DEFAULT_CONFIG.worktreeStateDir}".`);
+    }
+  }
+
+  // defaultFinishAction
+  if ("defaultFinishAction" in obj) {
+    if (obj.defaultFinishAction === null) {
+      config.defaultFinishAction = null;
+    } else if (typeof obj.defaultFinishAction === "string" && VALID_FINISH_ACTIONS.has(obj.defaultFinishAction)) {
+      config.defaultFinishAction = obj.defaultFinishAction as PiPlanConfig["defaultFinishAction"];
+    } else {
+      warnings.push(`Invalid defaultFinishAction — using default.`);
+    }
+  }
+
+  // prTemplate
+  if ("prTemplate" in obj) {
+    if (obj.prTemplate === null) {
+      config.prTemplate = null;
+    } else if (typeof obj.prTemplate === "string" && obj.prTemplate.trim().length > 0) {
+      config.prTemplate = obj.prTemplate;
+    } else {
+      warnings.push(`Invalid prTemplate — using default.`);
     }
   }
 

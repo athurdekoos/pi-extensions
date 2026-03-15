@@ -27,24 +27,24 @@ import type { AutoPlanPhase } from "./auto-plan.js";
 // ---------------------------------------------------------------------------
 
 export type InputResult =
-	| { action: "continue" }
-	| { action: "transform"; text: string };
+  | { action: "continue" }
+  | { action: "transform"; text: string };
 
 // ---------------------------------------------------------------------------
 // Harness command registry
 // ---------------------------------------------------------------------------
 
 export interface HarnessCommand {
-	/** Command identifier (matched against input text) */
-	name: string;
-	/** Human-readable description */
-	description: string;
-	/** Handler returns transform or continue */
-	handler: (
-		args: string,
-		phase: AutoPlanPhase,
-		repoRoot: string | null,
-	) => InputResult;
+  /** Command identifier (matched against input text) */
+  name: string;
+  /** Human-readable description */
+  description: string;
+  /** Handler returns transform or continue */
+  handler: (
+    args: string,
+    phase: AutoPlanPhase,
+    repoRoot: string | null,
+  ) => InputResult;
 }
 
 /**
@@ -58,7 +58,7 @@ export interface HarnessCommand {
  *   { name: "plan-step", description: "Advance to next plan step", handler: ... }
  */
 const harnessCommands: HarnessCommand[] = [
-	// Future commands go here
+  // Future commands go here
 ];
 
 // ---------------------------------------------------------------------------
@@ -66,12 +66,12 @@ const harnessCommands: HarnessCommand[] = [
 // ---------------------------------------------------------------------------
 
 export interface HarnessCommandMatch {
-	matched: true;
-	result: InputResult;
+  matched: true;
+  result: InputResult;
 }
 
 export interface HarnessCommandNoMatch {
-	matched: false;
+  matched: false;
 }
 
 /**
@@ -84,29 +84,29 @@ export interface HarnessCommandNoMatch {
  * Returns { matched: true, result } with the command's output otherwise.
  */
 export function evaluateHarnessCommand(
-	text: string,
-	phase: AutoPlanPhase,
-	repoRoot: string | null,
+  text: string,
+  phase: AutoPlanPhase,
+  repoRoot: string | null,
 ): HarnessCommandMatch | HarnessCommandNoMatch {
-	const trimmed = text.trim();
+  const trimmed = text.trim();
 
-	for (const cmd of harnessCommands) {
-		// Match "plan:<command-name>" or "plan:<command-name> <args>"
-		const prefix = `plan:${cmd.name}`;
-		if (trimmed === prefix || trimmed.startsWith(`${prefix} `)) {
-			const args = trimmed.slice(prefix.length).trim();
-			return { matched: true, result: cmd.handler(args, phase, repoRoot) };
-		}
-	}
+  for (const cmd of harnessCommands) {
+    // Match "plan:<command-name>" or "plan:<command-name> <args>"
+    const prefix = `plan:${cmd.name}`;
+    if (trimmed === prefix || trimmed.startsWith(`${prefix} `)) {
+      const args = trimmed.slice(prefix.length).trim();
+      return { matched: true, result: cmd.handler(args, phase, repoRoot) };
+    }
+  }
 
-	return { matched: false };
+  return { matched: false };
 }
 
 /**
  * Get all registered harness commands (for help/discovery).
  */
 export function getHarnessCommands(): readonly HarnessCommand[] {
-	return harnessCommands;
+  return harnessCommands;
 }
 
 // ---------------------------------------------------------------------------
@@ -130,22 +130,26 @@ export function getHarnessCommands(): readonly HarnessCommand[] {
  * Never returns "handled" — the user's message always reaches the agent.
  */
 export function evaluateInput(
-	phase: AutoPlanPhase,
-	text: string,
+  phase: AutoPlanPhase,
+  text: string,
 ): InputResult {
-	if (phase === "inactive") {
-		return { action: "continue" };
-	}
+  if (phase === "inactive") {
+    return { action: "continue" };
+  }
 
-	if (phase === "needs-plan") {
-		return {
-			action: "transform",
-			text: `[CONTEXT: Plan enforcement is active but no plan exists yet. ` +
-				`The user should create a plan with /plan before implementation. ` +
-				`Help them think through the task but do not make code changes.]\n\n${text}`,
-		};
-	}
+  if (phase === "needs-plan") {
+    return {
+      action: "transform",
+      text: `[CONTEXT: Plan enforcement is active but no plan exists yet. ` +
+        `The user should create a plan with /plan before implementation. ` +
+        `Help them think through the task but do not make code changes.]\n\n${text}`,
+    };
+  }
 
-	// has-plan, executing, no-repo, not-initialized — pass through
-	return { action: "continue" };
+  if (phase === "brainstorming") {
+    return { action: "continue" };
+  }
+
+  // has-plan, executing, no-repo, not-initialized — pass through
+  return { action: "continue" };
 }
